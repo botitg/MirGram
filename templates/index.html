@@ -1,0 +1,150 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MirnaChat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+</head>
+<body>
+    <div id="toast-container"></div>
+
+    <section id="auth-screen" class="screen">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <img src="{{ url_for('static', filename='assets/icon.png') }}" alt="Герб Мирнастана" class="brand-logo" />
+                <div>
+                    <h1>MirnaChat</h1>
+                    <p>Официальный мессенджер виртуального государства Мирнастан</p>
+                </div>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Вход</button>
+                <button class="tab-btn" data-tab="register">Регистрация</button>
+            </div>
+
+            <form id="login-form" class="auth-form active">
+                <label>
+                    Логин или Citizen ID
+                    <input type="text" name="login" required minlength="3" maxlength="40" placeholder="president или MIR-123456" />
+                </label>
+                <label>
+                    Пароль
+                    <input type="password" name="password" required minlength="6" placeholder="Ваш пароль" />
+                </label>
+                <button type="submit" class="primary-btn">Войти в MirnaChat</button>
+                <p class="auth-hint">Демо: <code>president / mirna123</code>, <code>police / mirna123</code>, <code>citizen / mirna123</code></p>
+            </form>
+
+            <form id="register-form" class="auth-form">
+                <label>
+                    Логин
+                    <input type="text" name="username" required minlength="3" maxlength="40" placeholder="unikalny_login" />
+                </label>
+                <label>
+                    Имя гражданина
+                    <input type="text" name="display_name" required minlength="2" maxlength="80" placeholder="Имя Фамилия" />
+                </label>
+                <label>
+                    Пароль
+                    <input type="password" name="password" required minlength="6" placeholder="Минимум 6 символов" />
+                </label>
+                <label>
+                    Фото (URL, опционально)
+                    <input type="url" name="avatar_url" placeholder="https://..." />
+                </label>
+                <button type="submit" class="primary-btn">Создать аккаунт</button>
+            </form>
+        </div>
+    </section>
+
+    <section id="app-screen" class="screen hidden">
+        <header class="topbar">
+            <div class="topbar-left">
+                <img src="{{ url_for('static', filename='assets/icon.png') }}" alt="Герб" class="top-logo" />
+                <div>
+                    <strong>MirnaChat</strong>
+                    <span>Связь граждан, государства и служб</span>
+                </div>
+            </div>
+
+            <label class="search-wrap">
+                <input id="chat-search" type="search" placeholder="Поиск по чатам и сообщениям..." />
+            </label>
+
+            <div id="topbar-user" class="topbar-user"></div>
+            <button id="logout-btn" class="ghost-btn">Выйти</button>
+        </header>
+
+        <main class="layout">
+            <aside class="sidebar chats-panel">
+                <div class="panel-head">
+                    <h2>Чаты</h2>
+                    <div class="panel-actions">
+                        <button id="new-dm-btn" class="panel-btn">ЛС</button>
+                        <button id="new-group-btn" class="panel-btn">Группа</button>
+                        <button id="new-channel-btn" class="panel-btn">Канал</button>
+                    </div>
+                </div>
+                <div id="chat-list" class="chat-list"></div>
+            </aside>
+
+            <section class="chat-panel">
+                <div id="chat-empty" class="chat-empty">
+                    <h3>Выберите чат слева</h3>
+                    <p>MirnaChat поддерживает личные сообщения, группы, каналы и государственные операции.</p>
+                </div>
+
+                <div id="chat-active" class="chat-active hidden">
+                    <div class="chat-head" id="chat-head"></div>
+                    <div id="messages" class="messages"></div>
+
+                    <form id="composer-form" class="composer">
+                        <button type="button" id="emoji-btn" class="icon-btn" title="Эмодзи">😊</button>
+                        <input id="message-input" type="text" autocomplete="off" placeholder="Введите сообщение..." maxlength="4000" />
+                        <button type="button" id="gov-action-btn" class="action-btn">Гос. действие</button>
+                        <button type="submit" class="send-btn">Отправить</button>
+                    </form>
+                </div>
+            </section>
+
+            <aside class="sidebar info-panel">
+                <div class="panel-head">
+                    <h2>Профиль</h2>
+                </div>
+
+                <div id="profile-card" class="profile-card"></div>
+                <button id="edit-profile-btn" class="panel-btn wide">Редактировать профиль</button>
+                <button id="invite-member-btn" class="panel-btn wide">Добавить участника в чат</button>
+
+                <div class="state-card">
+                    <img src="{{ url_for('static', filename='assets/flag.jpg') }}" alt="Флаг Мирнастана" />
+                    <div>
+                        <strong>Мирнастан</strong>
+                        <p>Государственная цифровая инфраструктура связи</p>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </section>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h3 id="modal-title">Форма</h3>
+                <button id="modal-close" class="ghost-btn" type="button">Закрыть</button>
+            </div>
+            <form id="modal-form">
+                <div id="modal-fields" class="modal-fields"></div>
+                <div class="modal-actions">
+                    <button type="button" id="modal-cancel" class="ghost-btn">Отмена</button>
+                    <button type="submit" class="primary-btn" id="modal-submit">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/mirna_app.js') }}" defer></script>
+</body>
+</html>

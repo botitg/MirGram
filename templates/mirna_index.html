@@ -1,0 +1,108 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MirnaChat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="app-body">
+    <div class="app-background"></div>
+
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-block">
+                <img src="{{ url_for('static', filename='assets/crest.png') }}" alt="Герб" class="brand-crest">
+                <div>
+                    <h1>MirnaChat</h1>
+                    <p>Государство Мирнастан</p>
+                </div>
+            </div>
+
+            <div class="search-wrap">
+                <input type="search" id="globalSearch" placeholder="Поиск чатов и граждан...">
+            </div>
+
+            <div class="top-actions">
+                <button id="newChatBtn" class="ghost-btn">Новый чат</button>
+                <button id="logoutBtn" class="ghost-btn">Выйти</button>
+            </div>
+        </header>
+
+        <div class="layout-grid">
+            <aside class="sidebar panel">
+                <div class="panel-heading">
+                    <h2>Чаты</h2>
+                    <span id="chatCount">0</span>
+                </div>
+                <div id="chatList" class="chat-list"></div>
+            </aside>
+
+            <main class="chat-main panel">
+                <header id="chatHeader" class="chat-header"></header>
+
+                <section id="govPanel" class="gov-panel hidden">
+                    <h3>Государственное действие</h3>
+                    <form id="govActionForm" class="gov-form">
+                        <select id="actionType" required></select>
+                        <select id="actionTarget" required></select>
+                        <input id="actionAmount" type="number" min="1" placeholder="Сумма (MNC)">
+                        <select id="actionRole">
+                            <option value="">Новая должность</option>
+                        </select>
+                        <input id="actionHours" type="number" min="1" max="168" placeholder="Часы ареста">
+                        <input id="actionReason" type="text" maxlength="220" placeholder="Причина (необязательно)">
+                        <button type="submit" class="gold-btn">Выполнить</button>
+                    </form>
+                </section>
+
+                <section id="messages" class="messages"></section>
+
+                <form id="composerForm" class="composer">
+                    <textarea id="messageInput" rows="1" maxlength="3500" placeholder="Введите сообщение. Эмодзи поддерживаются 🙂"></textarea>
+                    <button type="submit" class="gold-btn">Отправить</button>
+                </form>
+            </main>
+
+            <aside class="info-panel panel">
+                <section id="profileCard" class="info-card"></section>
+                <section id="chatInfoCard" class="info-card"></section>
+            </aside>
+        </div>
+    </div>
+
+    <div id="chatModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Создать чат</h3>
+                <button id="closeModalBtn" class="close-btn" type="button">×</button>
+            </div>
+
+            <form id="createChatForm" class="modal-form">
+                <label>Тип чата</label>
+                <select id="newChatType" required>
+                    <option value="dm">Личный диалог</option>
+                    <option value="group">Групповой чат</option>
+                    <option value="org_channel">Канал организации</option>
+                </select>
+
+                <label id="newChatTitleLabel">Название</label>
+                <input id="newChatTitle" type="text" minlength="3" maxlength="120" placeholder="Название чата">
+
+                <label>Описание</label>
+                <input id="newChatDescription" type="text" maxlength="280" placeholder="Краткое описание">
+
+                <label>Участники</label>
+                <input id="memberSearch" type="search" placeholder="Найти гражданина...">
+                <div id="memberList" class="member-list"></div>
+
+                <button type="submit" class="gold-btn">Создать</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="{{ url_for('static', filename='js/mirna_app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MirnaChat - Вход</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-bg"></div>
+    <main class="auth-shell">
+        <section class="auth-brand">
+            <img src="{{ url_for('static', filename='assets/crest.png') }}" alt="Герб Мирнастана" class="auth-crest">
+            <h1>MirnaChat</h1>
+            <p>Официальный мессенджер виртуального государства Мирнастан.</p>
+            <div class="demo-card">
+                <h3>Демо-аккаунты</h3>
+                <p><b>Логин:</b> president / minister / police / banker / citizen / biz</p>
+                <p><b>Пароль:</b> mirna123</p>
+            </div>
+        </section>
+
+        <section class="auth-panel">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="login">Вход</button>
+                <button class="tab-btn" data-tab="register">Регистрация</button>
+            </div>
+
+            <form id="loginForm" class="auth-form active" autocomplete="off">
+                <label>Логин</label>
+                <input type="text" name="username" required minlength="3" placeholder="Ваш логин">
+
+                <label>Пароль</label>
+                <input type="password" name="password" required minlength="6" placeholder="Ваш пароль">
+
+                <button type="submit" class="gold-btn">Войти в MirnaChat</button>
+            </form>
+
+            <form id="registerForm" class="auth-form" autocomplete="off">
+                <label>Имя</label>
+                <input type="text" name="display_name" required minlength="2" placeholder="Имя гражданина">
+
+                <label>Логин</label>
+                <input type="text" name="username" required minlength="3" placeholder="Придумайте логин">
+
+                <label>Пароль</label>
+                <input type="password" name="password" required minlength="6" placeholder="Минимум 6 символов">
+
+                <label>Роль</label>
+                <select name="role">
+                    <option value="Гражданин">Гражданин</option>
+                    <option value="Бизнесмен">Бизнесмен</option>
+                </select>
+
+                <button type="submit" class="gold-btn">Создать аккаунт</button>
+            </form>
+
+            <div id="authError" class="auth-error"></div>
+        </section>
+    </main>
+
+    <script>
+        const authError = document.getElementById('authError');
+
+        async function authRequest(url, body) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'Ошибка запроса');
+            }
+            return data;
+        }
+
+        function setError(message) {
+            authError.textContent = message || '';
+        }
+
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach((x) => x.classList.remove('active'));
+                document.querySelectorAll('.auth-form').forEach((x) => x.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab + 'Form').classList.add('active');
+                setError('');
+            });
+        });
+
+        document.getElementById('loginForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            try {
+                setError('');
+                await authRequest('/api/auth/login', {
+                    username: form.get('username'),
+                    password: form.get('password'),
+                });
+                window.location.href = '/';
+            } catch (error) {
+                setError(error.message);
+            }
+        });
+
+        document.getElementById('registerForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            try {
+                setError('');
+                await authRequest('/api/auth/register', {
+                    display_name: form.get('display_name'),
+                    username: form.get('username'),
+                    password: form.get('password'),
+                    role: form.get('role'),
+                });
+                window.location.href = '/';
+            } catch (error) {
+                setError(error.message);
+            }
+        });
+    </script>
+</body>
+</html>

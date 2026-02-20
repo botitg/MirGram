@@ -1,0 +1,13 @@
+﻿__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+.venv/
+instance/*.db
+instance/*.sqlite3
+node_modules/
+data/*.db
+uploads/images/*
+!uploads/images/.gitkeep

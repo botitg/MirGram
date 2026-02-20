@@ -1,0 +1,144 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MirnaChat Online</title>
+    <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+    <div id="toasts" class="toasts"></div>
+
+    <section id="authScreen" class="screen auth-screen">
+        <div class="auth-card">
+            <div class="brand">
+                <img src="/assets/icon.png" alt="MirnaChat" />
+                <div>
+                    <h1>MirnaChat</h1>
+                    <p>Реальный онлайн-мессенджер</p>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" data-tab="login">Вход</button>
+                <button class="tab" data-tab="register">Регистрация</button>
+            </div>
+
+            <form id="loginForm" class="auth-form active">
+                <label>
+                    Ник
+                    <input name="username" type="text" required minlength="3" maxlength="24" placeholder="nickname" />
+                </label>
+                <label>
+                    Пароль
+                    <input name="password" type="password" required minlength="6" placeholder="password" />
+                </label>
+                <button type="submit" class="btn primary">Войти</button>
+                <p class="hint">Демо: <code>president / mirna123</code>, <code>citizen / mirna123</code></p>
+            </form>
+
+            <form id="registerForm" class="auth-form">
+                <label>
+                    Ник
+                    <input name="username" type="text" required minlength="3" maxlength="24" placeholder="nickname" />
+                </label>
+                <label>
+                    Пароль
+                    <input name="password" type="password" required minlength="6" placeholder="password" />
+                </label>
+                <button type="submit" class="btn primary">Создать аккаунт</button>
+            </form>
+        </div>
+    </section>
+
+    <section id="appScreen" class="screen app-screen hidden">
+        <header class="topbar">
+            <button id="mobileChatsToggle" class="btn ghost mobile-only">Чаты</button>
+            <div class="brand-small">
+                <img src="/assets/icon.png" alt="MirnaChat" />
+                <strong>MirnaChat</strong>
+            </div>
+            <input id="chatSearch" class="search" type="search" placeholder="Поиск чатов" />
+            <button id="newPrivateBtn" class="btn ghost">ЛС</button>
+            <button id="newGroupBtn" class="btn ghost">Группа</button>
+            <button id="logoutBtn" class="btn ghost">Выйти</button>
+        </header>
+
+        <main class="layout">
+            <aside id="chatsPanel" class="panel chats-panel">
+                <div class="panel-head">
+                    <h2>Чаты</h2>
+                </div>
+                <div id="chatList" class="chat-list"></div>
+            </aside>
+
+            <section class="panel chat-panel">
+                <div id="emptyState" class="empty-state">
+                    <h3>Выберите чат</h3>
+                    <p>Отправляйте сообщения, фото и звоните голосом или видео.</p>
+                </div>
+
+                <div id="chatView" class="chat-view hidden">
+                    <div id="chatHeader" class="chat-header"></div>
+                    <div id="typingBar" class="typing-bar"></div>
+                    <div id="messages" class="messages"></div>
+
+                    <form id="composer" class="composer">
+                        <button id="emojiBtn" type="button" class="btn ghost icon-btn">😊</button>
+                        <div id="emojiPanel" class="emoji-panel hidden"></div>
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="Введите сообщение..." />
+                        <label class="btn ghost file-btn">
+                            📷
+                            <input id="imageInput" type="file" accept="image/*" hidden />
+                        </label>
+                        <button class="btn primary" type="submit">Отправить</button>
+                    </form>
+                    <div id="selectedImageBar" class="selected-image hidden"></div>
+                </div>
+            </section>
+
+            <aside class="panel info-panel">
+                <div class="panel-head">
+                    <h2>Инфо</h2>
+                </div>
+                <div id="profileBox" class="profile-box"></div>
+                <div id="chatActions" class="chat-actions"></div>
+                <div id="membersBox" class="members-box"></div>
+            </aside>
+        </main>
+    </section>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h3 id="modalTitle">Форма</h3>
+                <button id="modalClose" type="button" class="btn ghost">Закрыть</button>
+            </div>
+            <form id="modalForm">
+                <div id="modalFields" class="modal-fields"></div>
+                <div class="modal-actions">
+                    <button id="modalCancel" type="button" class="btn ghost">Отмена</button>
+                    <button type="submit" class="btn primary" id="modalSubmit">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="callOverlay" class="call-overlay hidden">
+        <div class="call-panel">
+            <div class="call-head">
+                <h3 id="callTitle">Звонок</h3>
+                <button id="leaveCallBtn" class="btn danger" type="button">Завершить</button>
+            </div>
+            <div class="call-videos">
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div id="remoteVideos" class="remote-videos"></div>
+            </div>
+            <p id="callStatus" class="hint"></p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
