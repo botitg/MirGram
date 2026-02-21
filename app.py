@@ -609,6 +609,53 @@ def users_get(user_id):
     return jsonify({"user": serialize_user(user)})
 
 
+@app.get("/api/chats/<int:chat_id>/candidates")
+@login_required
+def chat_candidates(chat_id):
+    q = (request.args.get("q") or "").strip().lower()
+    limit = min(max(int(request.args.get("limit", 50)), 1), 300)
+
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        return api_error("Чат не найден.", 404)
+    if chat.type == "private":
+        return api_error("Кандидаты доступны только для групп.", 400)
+    if not has_chat_access(chat, g.user):
+        return api_error("Доступ запрещён.", 403)
+
+    membership = db.session.execute(
+        db.select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == g.user.id)
+    ).scalar_one_or_none()
+    if not membership or (not membership.is_admin and g.user.role not in {"Президент", "Министр"}):
+        return api_error("Нужно быть администратором чата.", 403)
+
+    member_user_ids = {member.user_id for member in chat.members}
+
+    stmt = (
+        db.select(User)
+        .where(User.id != g.user.id, ~User.id.in_(member_user_ids))
+        .order_by(User.display_name.asc())
+        .limit(limit)
+    )
+
+    if q:
+        like = f"%{q}%"
+        stmt = (
+            db.select(User)
+            .where(
+                User.id != g.user.id,
+                ~User.id.in_(member_user_ids),
+                (User.display_name.ilike(like) | User.username.ilike(like) | User.citizen_id.ilike(like)),
+            )
+            .order_by(User.display_name.asc())
+            .limit(limit)
+        )
+
+    users = db.session.execute(stmt).scalars().all()
+    return jsonify({"users": [serialize_user(user) for user in users]})
+
+
+
 @app.get("/api/chats")
 @login_required
 def chats_list():
