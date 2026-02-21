@@ -1,4 +1,39 @@
-﻿const TOKEN_KEY = "mirnachat.online.token";
+const TOKEN_KEY = "mirnachat.online.token";
+const runtimeConfig = window.MIRNA_CONFIG || {};
+
+function normalizeBaseUrl(value) {
+    const input = String(value || "").trim();
+    if (!input) return "";
+    return input.replace(/\/+$/, "");
+}
+
+const API_BASE_URL = normalizeBaseUrl(runtimeConfig.API_BASE_URL || "");
+const SOCKET_URL = normalizeBaseUrl(runtimeConfig.SOCKET_URL || API_BASE_URL || "");
+
+function withBaseUrl(path) {
+    if (/^https?:\/\//i.test(path)) {
+        return path;
+    }
+    if (!API_BASE_URL) {
+        return path;
+    }
+    if (path.startsWith("/")) {
+        return `${API_BASE_URL}${path}`;
+    }
+    return `${API_BASE_URL}/${path}`;
+}
+
+function assetUrl(pathOrUrl) {
+    const value = String(pathOrUrl || "").trim();
+    if (!value) return "";
+    if (/^(https?:|data:|blob:)/i.test(value)) {
+        return value;
+    }
+    if (value.startsWith("//")) {
+        return `${window.location.protocol}${value}`;
+    }
+    return withBaseUrl(value.startsWith("/") ? value : `/${value}`);
+}
 
 const state = {
     token: localStorage.getItem(TOKEN_KEY) || "",
@@ -136,7 +171,7 @@ async function api(path, options = {}) {
         body = JSON.stringify(body);
     }
 
-    const res = await fetch(path, {
+    const res = await fetch(withBaseUrl(path), {
         method: options.method || "GET",
         headers,
         body,
@@ -263,7 +298,7 @@ function renderProfile() {
 
     dom.profileBox.innerHTML = `
         <div class="member-item">
-            <div class="member-avatar"><img src="${escapeHtml(state.me.avatarUrl)}" alt="avatar" /></div>
+            <div class="member-avatar"><img src="${escapeHtml(assetUrl(state.me.avatarUrl))}" alt="avatar" /></div>
             <div>
                 <strong>@${escapeHtml(state.me.username)}</strong>
                 <div class="hint">ID: ${state.me.id}</div>
@@ -296,7 +331,7 @@ function renderChats() {
             ? (chat.lastMessage.type === "image" ? "📷 Фото" : (chat.lastMessage.text || "Системное сообщение"))
             : "Нет сообщений";
         const avatar = chat.avatarUrl
-            ? `<img src="${escapeHtml(chat.avatarUrl)}" alt="avatar" />`
+            ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
             : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
 
         return `
@@ -382,7 +417,7 @@ function renderMessages() {
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
             : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
 
-        const image = message.imageUrl ? `<img class="msg-image" src="${escapeHtml(message.imageUrl)}" alt="photo" />` : "";
+        const image = message.imageUrl ? `<img class="msg-image" src="${escapeHtml(assetUrl(message.imageUrl))}" alt="photo" />` : "";
         const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
 
         return `<article class="${cls}">${header}${image}${text}</article>`;
@@ -406,7 +441,7 @@ function renderMembers() {
                 : "";
         return `
             <div class="member-item">
-                <div class="member-avatar"><img src="${escapeHtml(member.displayAvatar || member.avatarUrl)}" alt="avatar" /></div>
+                <div class="member-avatar"><img src="${escapeHtml(assetUrl(member.displayAvatar || member.avatarUrl))}" alt="avatar" /></div>
                 <div>
                     <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
                     <div class="hint">@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Оффлайн"}</div>
@@ -1499,11 +1534,17 @@ function connectSocket() {
         state.socket = null;
     }
 
-    const socket = io({
-        auth: {
-            token: getToken(),
-        },
-    });
+    const socket = SOCKET_URL
+        ? io(SOCKET_URL, {
+            auth: {
+                token: getToken(),
+            },
+        })
+        : io({
+            auth: {
+                token: getToken(),
+            },
+        });
 
     state.socket = socket;
 
@@ -1793,6 +1834,10 @@ async function init() {
     renderCurrentChat();
     renderProfile();
     renderSelectedImage();
+
+    if (window.location.hostname.endsWith("netlify.app") && !API_BASE_URL) {
+        toast("Не настроен MIRNA_API_BASE_URL: фронт не видит backend.");
+    }
 
     await loadSession();
     if (!state.me) {

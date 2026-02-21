@@ -1,8 +1,9 @@
-﻿const express = require("express");
+const express = require("express");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
+const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const { Server } = require("socket.io");
@@ -11,9 +12,17 @@ const sqlite3 = require("sqlite3");
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || "mirnachat-online-secret-change-me";
+const APP_BASE_URL = String(process.env.APP_BASE_URL || "").trim().replace(/\/+$/, "");
 const DB_PATH = path.join(__dirname, "data", "mirnachat-online.db");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const UPLOAD_DIR = path.join(__dirname, "uploads", "images");
+const CORS_ORIGINS = String(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const allowAllOrigins = CORS_ORIGINS.length === 0 || CORS_ORIGINS.includes("*");
+const socketCorsOrigin = allowAllOrigins ? true : CORS_ORIGINS;
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -22,10 +31,21 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*",
+        origin: socketCorsOrigin,
     },
 });
 
+const corsOptions = {
+    origin(origin, callback) {
+        if (allowAllOrigins || !origin || CORS_ORIGINS.includes(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error("Origin is not allowed by CORS"));
+    },
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "4mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(express.static(PUBLIC_DIR));
@@ -62,6 +82,16 @@ const callRoom = (chatId) => `call:${chatId}`;
 
 function nowIso() {
     return new Date().toISOString();
+}
+
+function toPublicUrl(value) {
+    const input = String(value || "").trim();
+    if (!input) return null;
+    if (/^https?:\/\//i.test(input)) return input;
+    if (APP_BASE_URL) {
+        return `${APP_BASE_URL}${input.startsWith("/") ? input : `/${input}`}`;
+    }
+    return input;
 }
 
 function normalizeUsername(value) {
@@ -149,7 +179,7 @@ async function serializeMessage(row) {
         chatId: row.chatId,
         type: row.type,
         text: row.text,
-        imageUrl: row.imageUrl,
+        imageUrl: toPublicUrl(row.imageUrl),
         createdAt: row.createdAt,
         sender: row.senderId
             ? {

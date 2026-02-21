@@ -1,65 +1,61 @@
 # MirnaChat Online
 
-Real-time browser messenger (Node.js backend, no Python runtime required).
+Real-time messenger with:
+- Node.js backend (Express + Socket.IO + SQLite)
+- Static frontend (HTML/CSS/JS)
+- WebRTC voice/video calls
 
-## Features
-
-- Account auth by `username + password` only
-- Private chats and group chats
-- Group owner/admin/member roles
-- Group member permissions:
-  - can send messages
-  - can send photos
-  - can start/join calls
-- Per-group nickname and avatar
-- Text, emoji, and photo messages
-- Online/offline presence and typing events
-- Voice chat and video chat (WebRTC + Socket.IO signaling)
-- Responsive UI for mobile
-
-## Stack
-
-- Frontend: `HTML`, `CSS`, `JavaScript`
-- Backend: `Node.js`, `Express`, `Socket.IO`
-- Database: `SQLite`
-
-## Project structure
-
-- `server.js` - REST API, Socket.IO, DB, uploads
-- `public/index.html` - UI markup
-- `public/css/app.css` - styles and responsive layout
-- `public/js/app.js` - client logic, realtime, WebRTC
-- `uploads/images/` - uploaded images
-- `data/mirnachat-online.db` - SQLite database
-
-## Run
-
-1. Install Node.js 18+.
-2. In project root:
+## Local run
 
 ```bash
 npm install
 npm start
 ```
 
-3. Open:
+Open `http://localhost:3000`.
 
-```text
-http://localhost:3000
-```
+## Split deploy (Frontend Netlify + Backend Render)
 
-## Demo users
+### 1) Deploy backend to Render
 
-Password for all demo users: `mirna123`
+Create a new **Web Service** from this repo.
 
-- `president`
-- `minister`
-- `police`
-- `banker`
-- `citizen`
-- `business`
+- Build command: `npm install`
+- Start command: `npm start`
 
-## Notes for calls
+Set env vars in Render:
 
-- For local testing, open 2 browsers/tabs and log in as different users.
-- In production, camera/mic requires `HTTPS`.
+- `JWT_SECRET` = long random string
+- `APP_BASE_URL` = your Render URL, example: `https://mirnachat-backend.onrender.com`
+- `CORS_ORIGINS` = comma-separated frontend origins, example:
+  `https://your-site.netlify.app,http://localhost:8888`
+
+After deploy, check:
+
+- `https://YOUR_RENDER_DOMAIN/api/health`
+
+### 2) Deploy frontend to Netlify
+
+This repo already contains `netlify.toml`:
+
+- Build command: `npm run build:frontend`
+- Publish directory: `public`
+
+Set env vars in Netlify:
+
+- `MIRNA_API_BASE_URL` = your Render URL, example: `https://mirnachat-backend.onrender.com`
+- `MIRNA_SOCKET_URL` = same Render URL (optional; defaults to `MIRNA_API_BASE_URL`)
+
+On each Netlify build, `scripts/generate-client-config.js` writes `public/config.js`.
+
+### 3) Important note
+
+Do not deploy this full app to static-only hosting without a Node process:
+- `/api/*` endpoints, Socket.IO, and calls require the Render backend.
+
+## Files added for deployment
+
+- `netlify.toml` - Netlify frontend build/publish config
+- `render.yaml` - Render web service config template
+- `scripts/generate-client-config.js` - generates runtime frontend config
+- `public/config.js` - runtime frontend config file
