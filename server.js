@@ -323,12 +323,15 @@ async function initializeDatabase() {
             avatar_url TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON users(username COLLATE NOCASE);
 
         CREATE TABLE IF NOT EXISTS chats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
             type TEXT NOT NULL CHECK(type IN ('private', 'group')),
             owner_id INTEGER,
+            is_default INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY(owner_id) REFERENCES users(id)
         );
@@ -382,9 +385,9 @@ async function initializeDatabase() {
     const users = await db.all('SELECT id FROM users ORDER BY id ASC');
 
     const groupResult = await db.run(
-        `INSERT INTO chats (name, type, owner_id, created_at)
-         VALUES (?, 'group', ?, ?)`,
-        ['MirnaChat Lobby', owner.id, nowIso()]
+        `INSERT INTO chats (name, type, owner_id, is_default, created_at)
+         VALUES (?, 'group', ?, 1, ?)`,
+        ['MirnoGram Лобби', owner.id, nowIso()]
     );
 
     const chatId = groupResult.lastID;
@@ -433,7 +436,22 @@ app.post(
             [username, passwordHash, avatarUrl, nowIso()]
         );
 
-        const user = await readUser(result.lastID);
+        const newUserId = result.lastID;
+
+        // Auto-add to default chats
+        const defaultChats = await db.all('SELECT id FROM chats WHERE is_default = 1');
+
+        for (const chat of defaultChats) {
+            await db.run(
+                `INSERT OR IGNORE INTO chat_members (
+                chat_id, user_id, role, group_nick, group_avatar_url,
+                can_send, can_send_media, can_start_calls, joined_at
+             ) VALUES (?, ?, 'member', NULL, NULL, 1, 1, 1, ?)`,
+                [chat.id, newUserId, nowIso()]
+            );
+        }
+
+        const user = await readUser(newUserId);
         const token = createToken(user.id);
         res.json({ token, user });
     })
@@ -1403,7 +1421,7 @@ app.get('*', (_, res) => {
 async function start() {
     await initializeDatabase();
     server.listen(PORT, () => {
-        console.log(`MirnaChat online server running on http://localhost:${PORT}`);
+        console.log(`🎮 MirnoGram - Messenger для Мирнастана работает на http://localhost:${PORT}`);
     });
 }
 
