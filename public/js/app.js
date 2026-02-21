@@ -797,9 +797,8 @@ async function openAddMemberModal() {
     if (!state.currentChat || state.currentChat.type !== "group") return;
 
     try {
-        const usersData = await api("/api/users/search?limit=200");
-        const existingIds = new Set(state.members.map((member) => member.id));
-        const candidates = (usersData.users || []).filter((user) => !existingIds.has(user.id));
+        const usersData = await api(`/api/chats/${state.currentChatId}/candidates?limit=300`);
+        const candidates = usersData.users || [];
 
         if (!candidates.length) {
             toast("Нет кандидатов для добавления.");
@@ -815,7 +814,7 @@ async function openAddMemberModal() {
                     type: "select",
                     label: "Пользователь",
                     required: true,
-                    options: candidates.map((user) => ({ value: user.id, label: `@${user.username}` })),
+                    options: candidates.map((user) => ({ value: user.id, label: `@${user.username} | ID ${user.id}` })),
                 },
             ],
         });

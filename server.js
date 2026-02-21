@@ -530,6 +530,37 @@ app.get("/api/users/search", authMiddleware, withApi(async (req, res) => {
     res.json({ users: rows });
 }));
 
+app.get("/api/chats/:chatId/candidates", authMiddleware, withApi(async (req, res) => {
+    const chatId = Number(req.params.chatId);
+    const q = String(req.query.q || "").trim().toLowerCase();
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 120), 300));
+
+    const actor = await readMembership(chatId, req.user.id);
+    assert(actor, "Доступ запрещён.", 403);
+    assert(actor.chatType === "group", "Кандидаты доступны только для групп.", 400);
+    assert(canManageMembers(actor.role), "Недостаточно прав.", 403);
+
+    const rows = await db.all(
+        `SELECT u.id,
+                u.username,
+                u.avatar_url AS avatarUrl
+         FROM users u
+         WHERE u.id <> ?
+           AND u.username LIKE ?
+           AND NOT EXISTS (
+               SELECT 1
+               FROM chat_members cm
+               WHERE cm.chat_id = ?
+                 AND cm.user_id = u.id
+           )
+         ORDER BY u.username ASC
+         LIMIT ?`,
+        [req.user.id, `%${q}%`, chatId, limit],
+    );
+
+    res.json({ users: rows });
+}));
+
 app.get("/api/chats", authMiddleware, withApi(async (req, res) => {
     const rows = await db.all(
         `SELECT c.id,
