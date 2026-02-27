@@ -12,6 +12,8 @@ npm install
 npm start
 ```
 
+`npm start` автоматически делает `build:frontend` и затем запускает backend (Express + Socket.IO), который раздаёт frontend из `public/`.
+
 Open `http://localhost:3000`.
 
 ## Environment variables (ideal setup)

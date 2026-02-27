@@ -5,8 +5,8 @@
   "main": "server.js",
   "scripts": {
     "build:frontend": "node scripts/generate-client-config.js",
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "npm run build:frontend && node server.js",
+    "dev": "npm run build:frontend && node server.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
