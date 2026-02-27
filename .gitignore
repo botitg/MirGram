@@ -3,6 +3,10 @@
 *.pyo
 *.pyd
 .env
+.env.*
+!.env.example
+!.env.render.example
+!.env.netlify.example
 venv/
 .venv/
 instance/*.db

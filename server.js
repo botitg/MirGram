@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -12,6 +14,7 @@ const sqlite3 = require('sqlite3');
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'mirnachat-online-secret-change-me';
+const AUTO_JOIN_DEFAULT_CHATS = ['1', 'true', 'yes', 'on'].includes(String(process.env.AUTO_JOIN_DEFAULT_CHATS || '').trim().toLowerCase());
 const APP_BASE_URL = String(process.env.APP_BASE_URL || '')
     .trim()
     .replace(/\/+$/, '');
@@ -387,7 +390,7 @@ async function initializeDatabase() {
     const groupResult = await db.run(
         `INSERT INTO chats (name, type, owner_id, is_default, created_at)
          VALUES (?, 'group', ?, 1, ?)`,
-        ['MirnoGram Лобби', owner.id, nowIso()]
+        ['MIRX Лобби', owner.id, nowIso()]
     );
 
     const chatId = groupResult.lastID;
@@ -406,7 +409,7 @@ async function initializeDatabase() {
         chatId,
         userId: owner.id,
         type: 'system',
-        text: 'Добро пожаловать в MirnaChat. Это общий чат для общения.',
+        text: 'Добро пожаловать в MIRX. Это общий чат для общения.',
     });
 }
 
@@ -438,17 +441,17 @@ app.post(
 
         const newUserId = result.lastID;
 
-        // Auto-add to default chats
-        const defaultChats = await db.all('SELECT id FROM chats WHERE is_default = 1');
-
-        for (const chat of defaultChats) {
-            await db.run(
-                `INSERT OR IGNORE INTO chat_members (
-                chat_id, user_id, role, group_nick, group_avatar_url,
-                can_send, can_send_media, can_start_calls, joined_at
-             ) VALUES (?, ?, 'member', NULL, NULL, 1, 1, 1, ?)`,
-                [chat.id, newUserId, nowIso()]
-            );
+        if (AUTO_JOIN_DEFAULT_CHATS) {
+            const defaultChats = await db.all('SELECT id FROM chats WHERE is_default = 1');
+            for (const chat of defaultChats) {
+                await db.run(
+                    `INSERT OR IGNORE INTO chat_members (
+                    chat_id, user_id, role, group_nick, group_avatar_url,
+                    can_send, can_send_media, can_start_calls, joined_at
+                 ) VALUES (?, ?, 'member', NULL, NULL, 1, 1, 1, ?)`,
+                    [chat.id, newUserId, nowIso()]
+                );
+            }
         }
 
         const user = await readUser(newUserId);
@@ -1421,7 +1424,7 @@ app.get('*', (_, res) => {
 async function start() {
     await initializeDatabase();
     server.listen(PORT, () => {
-        console.log(`🎮 MirnoGram - Messenger для Мирнастана работает на http://localhost:${PORT}`);
+        console.log(`🎮 MIRX - Messenger для Мирнастана работает на http://localhost:${PORT}`);
     });
 }
 

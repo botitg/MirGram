@@ -1,4 +1,4 @@
-const TOKEN_KEY = "mirnachat.online.token";
+const TOKEN_KEY = "mirx.token";
 const runtimeConfig = window.MIRNA_CONFIG || {};
 
 function normalizeBaseUrl(value) {
@@ -179,6 +179,9 @@ async function api(path, options = {}) {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+        if (res.status === 404 && !API_BASE_URL && !window.location.hostname.includes("localhost")) {
+            throw new Error("Backend не найден. Проверь MIRNA_API_BASE_URL в Netlify.");
+        }
         throw new Error(data.error || `Ошибка ${res.status}`);
     }
     return data;
@@ -797,11 +800,31 @@ async function openAddMemberModal() {
     if (!state.currentChat || state.currentChat.type !== "group") return;
 
     try {
-        const usersData = await api(`/api/chats/${state.currentChatId}/candidates?limit=300`);
-        const candidates = usersData.users || [];
+        const existingIds = new Set(state.members.map((member) => Number(member.id)));
+        let candidates = [];
+
+        try {
+            const usersData = await api(`/api/chats/${state.currentChatId}/candidates?limit=300`);
+            candidates = usersData.users || [];
+        } catch {
+            const usersData = await api("/api/users/search?limit=300");
+            candidates = (usersData.users || []).filter((user) => !existingIds.has(Number(user.id)));
+        }
 
         if (!candidates.length) {
-            toast("Нет кандидатов для добавления.");
+            const usersData = await api("/api/users/search?limit=300");
+            candidates = (usersData.users || []).filter((user) => !existingIds.has(Number(user.id)));
+        }
+
+        const uniqueById = new Map();
+        for (const user of candidates) {
+            if (!user || !user.id) continue;
+            uniqueById.set(Number(user.id), user);
+        }
+        candidates = Array.from(uniqueById.values());
+
+        if (!candidates.length) {
+            toast("Нет зарегистрированных пользователей для добавления.");
             return;
         }
 
@@ -812,7 +835,7 @@ async function openAddMemberModal() {
                 {
                     name: "userId",
                     type: "select",
-                    label: "Пользователь",
+                    label: "Зарегистрированный пользователь",
                     required: true,
                     options: candidates.map((user) => ({ value: user.id, label: `@${user.username} | ID ${user.id}` })),
                 },
@@ -831,7 +854,6 @@ async function openAddMemberModal() {
         if (error.message !== "cancelled") toast(error.message);
     }
 }
-
 async function openManageMemberModal() {
     if (!state.currentChat || state.currentChat.type !== "group") return;
 
