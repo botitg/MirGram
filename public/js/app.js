@@ -43,8 +43,30 @@ function urlBase64ToUint8Array(base64String) {
     return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
+function readStoredToken() {
+    try {
+        const sessionToken = window.sessionStorage?.getItem(TOKEN_KEY) || "";
+        if (sessionToken) {
+            return sessionToken;
+        }
+    } catch {
+        // ignore
+    }
+
+    try {
+        const legacyToken = window.localStorage?.getItem(TOKEN_KEY) || "";
+        if (legacyToken) {
+            window.sessionStorage?.setItem(TOKEN_KEY, legacyToken);
+            window.localStorage?.removeItem(TOKEN_KEY);
+        }
+        return legacyToken;
+    } catch {
+        return "";
+    }
+}
+
 const state = {
-    token: localStorage.getItem(TOKEN_KEY) || "",
+    token: readStoredToken(),
     me: null,
     chats: [],
     filteredChats: [],
@@ -61,12 +83,28 @@ const state = {
     selectedImage: null,
     selectedAudio: null,
     selectedVideo: null,
+    selectedAttachmentMeta: null,
+    selectedAttachmentPreviewUrl: "",
     profileAvatarFile: null,
     profileAvatarPreviewUrl: "",
     callStatusByChat: new Map(),
     serviceWorkerRegistration: null,
     pushEnabled: false,
     pendingCallChatId: null,
+    recording: {
+        chatId: null,
+        kind: null,
+        mediaRecorder: null,
+        chunks: [],
+        stream: null,
+        startedAt: 0,
+        timerId: null,
+        durationMs: 0,
+        isSending: false,
+        mimeType: "",
+        shouldSendAfterStop: false,
+        cancelled: false,
+    },
 };
 
 const callState = {
@@ -78,10 +116,18 @@ const callState = {
     participants: new Map(),
     micEnabled: true,
     cameraEnabled: false,
+    pendingIce: new Map(),
+    localStreamPromise: null,
 };
 
 const rtcConfig = {
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [{
+        urls: [
+            "stun:stun.l.google.com:19302",
+            "stun:stun1.l.google.com:19302",
+            "stun:stun2.l.google.com:19302",
+        ],
+    }],
 };
 
 const MOBILE_BREAKPOINT = 840;
@@ -104,8 +150,8 @@ const dom = {
     composer: document.getElementById("composer"),
     messageInput: document.getElementById("messageInput"),
     imageInput: document.getElementById("imageInput"),
-    audioInput: document.getElementById("audioInput"),
-    videoInput: document.getElementById("videoInput"),
+    recordVoiceBtn: document.getElementById("recordVoiceBtn"),
+    recordVideoBtn: document.getElementById("recordVideoBtn"),
     selectedImageBar: document.getElementById("selectedImageBar"),
     emojiBtn: document.getElementById("emojiBtn"),
     emojiPanel: document.getElementById("emojiPanel"),
@@ -266,6 +312,12 @@ function clearProfileAvatarPreviewUrl() {
     state.profileAvatarPreviewUrl = "";
 }
 
+function clearSelectedAttachmentPreviewUrl() {
+    if (!state.selectedAttachmentPreviewUrl) return;
+    URL.revokeObjectURL(state.selectedAttachmentPreviewUrl);
+    state.selectedAttachmentPreviewUrl = "";
+}
+
 function getProfileDraftAvatar() {
     if (state.profileAvatarPreviewUrl) {
         return state.profileAvatarPreviewUrl;
@@ -325,10 +377,15 @@ function getToken() {
 
 function setToken(token) {
     state.token = token || "";
-    if (state.token) {
-        localStorage.setItem(TOKEN_KEY, state.token);
-    } else {
-        localStorage.removeItem(TOKEN_KEY);
+    try {
+        if (state.token) {
+            window.sessionStorage?.setItem(TOKEN_KEY, state.token);
+        } else {
+            window.sessionStorage?.removeItem(TOKEN_KEY);
+        }
+        window.localStorage?.removeItem(TOKEN_KEY);
+    } catch {
+        // ignore
     }
 }
 
@@ -764,13 +821,27 @@ function renderMessages() {
 
         const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
         const image = message.type === "image" && mediaUrl
-            ? `<img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" />`
+            ? `
+                <div class="msg-media-card">
+                    <img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" />
+                </div>
+            `
             : "";
         const audio = message.type === "audio" && mediaUrl
-            ? `<audio class="msg-audio" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></audio>`
+            ? `
+                <div class="msg-media-card msg-voice-card">
+                    <div class="msg-voice-head">🎙 Голосовое сообщение</div>
+                    <audio class="msg-audio" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></audio>
+                </div>
+            `
             : "";
         const video = message.type === "video" && mediaUrl
-            ? `<video class="msg-video" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></video>`
+            ? `
+                <div class="msg-media-card msg-video-card">
+                    <div class="msg-voice-head">🎬 Видеосообщение</div>
+                    <video class="msg-video" controls preload="metadata" playsinline src="${escapeHtml(mediaUrl)}"></video>
+                </div>
+            `
             : "";
         const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
 
@@ -884,6 +955,10 @@ async function loadChats() {
 }
 
 async function openChat(chatId) {
+    if (state.recording.kind && Number(chatId) !== Number(state.currentChatId)) {
+        await stopRecording({ sendAfterStop: false, cancel: true });
+    }
+
     state.currentChatId = Number(chatId);
     state.currentChat = state.chats.find((chat) => chat.id === state.currentChatId) || null;
 
@@ -987,6 +1062,11 @@ async function register(event) {
 }
 
 async function logout() {
+    if (state.recording.kind) {
+        await stopRecording({ sendAfterStop: false, cancel: true });
+    } else {
+        resetRecordingState();
+    }
     stopCall();
     if (state.socket) {
         state.socket.disconnect();
@@ -1006,8 +1086,10 @@ async function logout() {
     state.selectedImage = null;
     state.selectedAudio = null;
     state.selectedVideo = null;
+    state.selectedAttachmentMeta = null;
     state.profileAvatarFile = null;
     clearProfileAvatarPreviewUrl();
+    clearSelectedAttachmentPreviewUrl();
     state.pushEnabled = false;
     state.pendingCallChatId = null;
 
@@ -1342,15 +1424,15 @@ async function openManageMemberModal() {
 }
 
 function clearSelectedAttachments() {
+    clearSelectedAttachmentPreviewUrl();
     state.selectedImage = null;
     state.selectedAudio = null;
     state.selectedVideo = null;
+    state.selectedAttachmentMeta = null;
     dom.imageInput.value = "";
-    dom.audioInput.value = "";
-    dom.videoInput.value = "";
 }
 
-function setSelectedAttachment(kind, file) {
+function setSelectedAttachment(kind, file, meta = {}) {
     clearSelectedAttachments();
     if (!file) {
         renderSelectedImage();
@@ -1360,20 +1442,300 @@ function setSelectedAttachment(kind, file) {
     if (kind === "image") state.selectedImage = file;
     if (kind === "audio") state.selectedAudio = file;
     if (kind === "video") state.selectedVideo = file;
+    state.selectedAttachmentMeta = meta;
+    state.selectedAttachmentPreviewUrl = URL.createObjectURL(file);
     renderSelectedImage();
 }
 
 function getSelectedAttachment() {
     if (state.selectedVideo) {
-        return { kind: "video", file: state.selectedVideo, field: "video", endpoint: "video", label: "🎬 Видеосообщение" };
+        return {
+            kind: "video",
+            file: state.selectedVideo,
+            field: "video",
+            endpoint: "video",
+            label: "🎬 Видеосообщение",
+            meta: state.selectedAttachmentMeta || {},
+            previewUrl: state.selectedAttachmentPreviewUrl,
+        };
     }
     if (state.selectedAudio) {
-        return { kind: "audio", file: state.selectedAudio, field: "audio", endpoint: "audio", label: "🎙 Голосовое сообщение" };
+        return {
+            kind: "audio",
+            file: state.selectedAudio,
+            field: "audio",
+            endpoint: "audio",
+            label: "🎙 Голосовое сообщение",
+            meta: state.selectedAttachmentMeta || {},
+            previewUrl: state.selectedAttachmentPreviewUrl,
+        };
     }
     if (state.selectedImage) {
-        return { kind: "image", file: state.selectedImage, field: "image", endpoint: "image", label: "📷 Фото" };
+        return {
+            kind: "image",
+            file: state.selectedImage,
+            field: "image",
+            endpoint: "image",
+            label: "📷 Фото",
+            meta: state.selectedAttachmentMeta || {},
+            previewUrl: state.selectedAttachmentPreviewUrl,
+        };
     }
     return null;
+}
+
+function formatDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getRecordingMimeType(kind) {
+    if (typeof MediaRecorder === "undefined") {
+        return "";
+    }
+
+    const candidates = kind === "video"
+        ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+        : ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+
+    for (const candidate of candidates) {
+        if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) {
+            return candidate;
+        }
+    }
+
+    return "";
+}
+
+function updateRecordingButtons() {
+    const isVoiceRecording = state.recording.kind === "audio";
+    const isVideoRecording = state.recording.kind === "video";
+
+    dom.recordVoiceBtn?.classList.toggle("recording", isVoiceRecording);
+    dom.recordVideoBtn?.classList.toggle("recording", isVideoRecording);
+    dom.recordVoiceBtn?.classList.toggle("busy", state.recording.isSending);
+    dom.recordVideoBtn?.classList.toggle("busy", state.recording.isSending);
+    if (dom.recordVoiceBtn) {
+        dom.recordVoiceBtn.textContent = isVoiceRecording ? "⏹" : "🎙";
+    }
+    if (dom.recordVideoBtn) {
+        dom.recordVideoBtn.textContent = isVideoRecording ? "⏹" : "🎬";
+    }
+}
+
+function clearRecordingTimer() {
+    if (!state.recording.timerId) return;
+    clearInterval(state.recording.timerId);
+    state.recording.timerId = null;
+}
+
+function stopRecordingStream(stream) {
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
+        track.stop();
+    }
+}
+
+function resetRecordingState() {
+    clearRecordingTimer();
+    stopRecordingStream(state.recording.stream);
+    state.recording.chatId = null;
+    state.recording.kind = null;
+    state.recording.mediaRecorder = null;
+    state.recording.chunks = [];
+    state.recording.stream = null;
+    state.recording.startedAt = 0;
+    state.recording.durationMs = 0;
+    state.recording.isSending = false;
+    state.recording.mimeType = "";
+    state.recording.shouldSendAfterStop = false;
+    state.recording.cancelled = false;
+    updateRecordingButtons();
+    applyComposerPermissions();
+}
+
+async function sendAttachmentMessage(chatId, attachment, caption = "") {
+    const form = new FormData();
+    form.append(attachment.field, attachment.file);
+    form.append("caption", caption);
+
+    const response = await api(`/api/chats/${chatId}/messages/${attachment.endpoint}`, {
+        method: "POST",
+        body: form,
+    });
+
+    if (response?.message) {
+        upsertMessage(response.message);
+        updateChatWithMessage(response.message);
+        if (Number(chatId) === Number(state.currentChatId)) {
+            renderMessages();
+        }
+    }
+
+    return response;
+}
+
+async function startRecording(kind) {
+    if (!state.currentChatId) {
+        toast("Сначала откройте чат.");
+        return;
+    }
+    if (!state.myPermissions?.canSend || !state.myPermissions?.canSendMedia) {
+        toast("У вас нет прав на отправку медиа в этом чате.");
+        return;
+    }
+    if (callState.active) {
+        toast("Нельзя записывать сообщение во время звонка.");
+        return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        toast("Этот браузер не поддерживает запись голоса и видео.");
+        return;
+    }
+    if (state.recording.isSending) {
+        return;
+    }
+    if (state.recording.kind) {
+        if (state.recording.kind === kind) {
+            await stopRecording({ sendAfterStop: true });
+            return;
+        }
+        toast("Сначала завершите текущую запись.");
+        return;
+    }
+
+    try {
+        clearSelectedAttachments();
+        renderSelectedImage();
+
+        const stream = await navigator.mediaDevices.getUserMedia(
+            kind === "video"
+                ? {
+                    audio: true,
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 480 },
+                        height: { ideal: 640 },
+                    },
+                }
+                : {
+                    audio: true,
+                    video: false,
+                }
+        );
+
+        const mimeType = getRecordingMimeType(kind);
+        const recorder = mimeType
+            ? new MediaRecorder(stream, { mimeType })
+            : new MediaRecorder(stream);
+
+        state.recording.chatId = state.currentChatId;
+        state.recording.kind = kind;
+        state.recording.mediaRecorder = recorder;
+        state.recording.chunks = [];
+        state.recording.stream = stream;
+        state.recording.startedAt = Date.now();
+        state.recording.durationMs = 0;
+        state.recording.isSending = false;
+        state.recording.mimeType = mimeType || recorder.mimeType || "";
+        state.recording.shouldSendAfterStop = false;
+        state.recording.cancelled = false;
+
+        recorder.addEventListener("dataavailable", (event) => {
+            if (event.data && event.data.size > 0) {
+                state.recording.chunks.push(event.data);
+            }
+        });
+
+        recorder.addEventListener("stop", async () => {
+            const snapshot = {
+                chatId: state.recording.chatId,
+                kind: state.recording.kind,
+                chunks: state.recording.chunks.slice(),
+                durationMs: state.recording.durationMs || Math.max(Date.now() - state.recording.startedAt, 0),
+                mimeType: state.recording.mimeType,
+                shouldSendAfterStop: state.recording.shouldSendAfterStop,
+                cancelled: state.recording.cancelled,
+            };
+
+            resetRecordingState();
+
+            if (snapshot.cancelled || !snapshot.shouldSendAfterStop || !snapshot.chunks.length) {
+                renderSelectedImage();
+                return;
+            }
+
+            const extension = snapshot.kind === "video" ? "webm" : "webm";
+            const blob = new Blob(snapshot.chunks, {
+                type: snapshot.mimeType || (snapshot.kind === "video" ? "video/webm" : "audio/webm"),
+            });
+            const file = new File([blob], `${snapshot.kind}-${Date.now()}.${extension}`, {
+                type: blob.type,
+                lastModified: Date.now(),
+            });
+            const attachment = {
+                kind: snapshot.kind,
+                file,
+                field: snapshot.kind,
+                endpoint: snapshot.kind,
+                label: snapshot.kind === "video" ? "🎬 Видеосообщение" : "🎙 Голосовое сообщение",
+                meta: {
+                    recorded: true,
+                    durationMs: snapshot.durationMs,
+                },
+            };
+
+            setSelectedAttachment(snapshot.kind, file, attachment.meta);
+            state.recording.isSending = true;
+            updateRecordingButtons();
+            applyComposerPermissions();
+            renderSelectedImage();
+
+            try {
+                await sendAttachmentMessage(snapshot.chatId, attachment, "");
+                clearSelectedAttachments();
+                renderSelectedImage();
+            } catch (error) {
+                toast(error.message || "Не удалось отправить запись.");
+                renderSelectedImage();
+            } finally {
+                state.recording.isSending = false;
+                updateRecordingButtons();
+                applyComposerPermissions();
+            }
+        });
+
+        recorder.start(250);
+        state.recording.timerId = setInterval(() => {
+            state.recording.durationMs = Math.max(Date.now() - state.recording.startedAt, 0);
+            renderSelectedImage();
+        }, 250);
+
+        updateRecordingButtons();
+        applyComposerPermissions();
+        renderSelectedImage();
+    } catch (error) {
+        resetRecordingState();
+        renderSelectedImage();
+        toast(error.message || "Не удалось начать запись.");
+    }
+}
+
+async function stopRecording({ sendAfterStop = true, cancel = false } = {}) {
+    const recorder = state.recording.mediaRecorder;
+    if (!recorder || recorder.state === "inactive") {
+        resetRecordingState();
+        renderSelectedImage();
+        return;
+    }
+
+    state.recording.durationMs = Math.max(Date.now() - state.recording.startedAt, 0);
+    state.recording.shouldSendAfterStop = Boolean(sendAfterStop);
+    state.recording.cancelled = Boolean(cancel);
+    clearRecordingTimer();
+    recorder.stop();
 }
 
 async function sendMessage(event) {
@@ -1381,6 +1743,10 @@ async function sendMessage(event) {
     if (!state.currentChatId) return;
     if (!state.myPermissions?.canSend) {
         toast("У вас нет прав на отправку сообщений в этом чате.");
+        return;
+    }
+    if (state.recording.kind) {
+        toast("Сначала завершите запись.");
         return;
     }
 
@@ -1396,14 +1762,7 @@ async function sendMessage(event) {
     try {
         let response;
         if (attachment) {
-            const form = new FormData();
-            form.append(attachment.field, attachment.file);
-            form.append("caption", text);
-
-            response = await api(`/api/chats/${state.currentChatId}/messages/${attachment.endpoint}`, {
-                method: "POST",
-                body: form,
-            });
+            response = await sendAttachmentMessage(state.currentChatId, attachment, text);
         } else {
             response = await api(`/api/chats/${state.currentChatId}/messages`, {
                 method: "POST",
@@ -1430,6 +1789,35 @@ async function sendMessage(event) {
 }
 
 function renderSelectedImage() {
+    if (state.recording.kind) {
+        const label = state.recording.kind === "video" ? "Видеосообщение" : "Голосовое сообщение";
+        dom.selectedImageBar.classList.remove("hidden");
+        dom.selectedImageBar.innerHTML = `
+            <div class="composer-status-card recording-card">
+                <div class="composer-status-icon">${state.recording.kind === "video" ? "🎬" : "🎙"}</div>
+                <div class="composer-status-copy">
+                    <strong>${label}</strong>
+                    <span>Идёт запись · ${formatDuration(state.recording.durationMs)}</span>
+                </div>
+                <div class="composer-status-actions">
+                    <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">Отмена</button>
+                    <button type="button" id="finishRecordingBtn" class="btn primary compact-btn">Отправить</button>
+                </div>
+            </div>
+        `;
+        document.getElementById("cancelRecordingBtn")?.addEventListener("click", () => {
+            stopRecording({ sendAfterStop: false, cancel: true }).catch(() => {
+                // ignore
+            });
+        });
+        document.getElementById("finishRecordingBtn")?.addEventListener("click", () => {
+            stopRecording({ sendAfterStop: true }).catch(() => {
+                // ignore
+            });
+        });
+        return;
+    }
+
     const attachment = getSelectedAttachment();
     if (!attachment) {
         dom.selectedImageBar.classList.add("hidden");
@@ -1437,10 +1825,35 @@ function renderSelectedImage() {
         return;
     }
 
+    const attachmentMeta = attachment.meta || {};
+    let preview = "";
+    if (attachment.kind === "image" && attachment.previewUrl) {
+        preview = `<img class="composer-preview-image" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр фото" />`;
+    }
+    if (attachment.kind === "audio" && attachment.previewUrl) {
+        preview = `<audio class="composer-preview-audio" controls preload="metadata" src="${escapeHtml(attachment.previewUrl)}"></audio>`;
+    }
+    if (attachment.kind === "video" && attachment.previewUrl) {
+        preview = `<video class="composer-preview-video" controls preload="metadata" playsinline src="${escapeHtml(attachment.previewUrl)}"></video>`;
+    }
+
+    const metaText = attachmentMeta.recorded
+        ? ` · ${formatDuration(attachmentMeta.durationMs)}`
+        : "";
+
     dom.selectedImageBar.classList.remove("hidden");
     dom.selectedImageBar.innerHTML = `
-        ${attachment.label}: ${escapeHtml(attachment.file.name)}
-        <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">Убрать</button>
+        <div class="composer-status-card">
+            <div class="composer-status-icon">${escapeHtml(attachment.label.split(" ")[0])}</div>
+            <div class="composer-status-copy">
+                <strong>${escapeHtml(attachment.label)}${escapeHtml(metaText)}</strong>
+                <span>${escapeHtml(attachment.file.name)}</span>
+            </div>
+            <div class="composer-status-actions">
+                <button type="button" id="clearImageBtn" class="btn ghost compact-btn">Убрать</button>
+            </div>
+            ${preview}
+        </div>
     `;
     document.getElementById("clearImageBtn")?.addEventListener("click", () => {
         clearSelectedAttachments();
@@ -1468,23 +1881,27 @@ function applyComposerPermissions() {
     const hasChat = Boolean(state.currentChatId && state.currentChat);
     const canSend = Boolean(hasChat && state.myPermissions?.canSend);
     const canMedia = Boolean(canSend && state.myPermissions?.canSendMedia);
+    const isRecording = Boolean(state.recording.kind);
+    const recordLocked = Boolean(!canMedia || callState.active || state.recording.isSending);
 
     const submitBtn = dom.composer.querySelector('button[type="submit"]');
-    const fileButtons = Array.from(dom.composer.querySelectorAll(".file-btn"));
+    const imageButton = dom.imageInput.closest(".file-btn");
 
-    dom.messageInput.disabled = !canSend;
+    dom.messageInput.disabled = !canSend || isRecording;
     dom.emojiBtn.disabled = !canSend;
-    dom.imageInput.disabled = !canMedia;
-    dom.audioInput.disabled = !canMedia;
-    dom.videoInput.disabled = !canMedia;
-    if (submitBtn) submitBtn.disabled = !canSend;
-    for (const button of fileButtons) {
-        button.classList.toggle("disabled", !canMedia);
-    }
+    dom.imageInput.disabled = !canMedia || isRecording;
+    if (submitBtn) submitBtn.disabled = !canSend || isRecording;
+    imageButton?.classList.toggle("disabled", !canMedia || isRecording);
+    dom.recordVoiceBtn?.classList.toggle("disabled", recordLocked && !isRecording);
+    dom.recordVideoBtn?.classList.toggle("disabled", recordLocked && !isRecording);
+    if (dom.recordVoiceBtn) dom.recordVoiceBtn.disabled = recordLocked && !isRecording;
+    if (dom.recordVideoBtn) dom.recordVideoBtn.disabled = recordLocked && !isRecording;
 
     dom.messageInput.placeholder = !hasChat
         ? "Выберите чат"
-        : canSend
+        : isRecording
+            ? "Запись идёт..."
+            : canSend
             ? "Введите сообщение..."
             : "У вас нет прав на отправку сообщений";
 
@@ -1610,6 +2027,37 @@ function getLocalAudioTrack() {
 
 function getLocalVideoTrack() {
     return callState.localStream?.getVideoTracks?.()[0] || null;
+}
+
+function queuePendingIceCandidate(userId, candidate) {
+    if (!candidate) return;
+    const id = Number(userId);
+    if (!id) return;
+
+    const queue = callState.pendingIce.get(id) || [];
+    queue.push(candidate);
+    callState.pendingIce.set(id, queue);
+}
+
+async function flushPendingIceCandidates(userId) {
+    const id = Number(userId);
+    if (!id) return;
+
+    const peer = callState.peers.get(id);
+    const queue = callState.pendingIce.get(id) || [];
+    if (!peer || !queue.length || !peer.pc.remoteDescription) {
+        return;
+    }
+
+    for (const candidate of queue) {
+        await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+
+    callState.pendingIce.delete(id);
+}
+
+function clearPendingIceCandidates() {
+    callState.pendingIce.clear();
 }
 
 function updateLocalCallPreview() {
@@ -1773,42 +2221,80 @@ async function syncAllPeerTracks() {
     await Promise.all(peers.map((peer) => syncPeerLocalTracks(peer)));
 }
 
+async function addLocalTrackFromConstraints(kind, constraints) {
+    const tempStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const track = kind === "video"
+        ? tempStream.getVideoTracks()[0]
+        : tempStream.getAudioTracks()[0];
+
+    if (!track) {
+        stopRecordingStream(tempStream);
+        throw new Error(kind === "video" ? "Камера недоступна." : "Микрофон недоступен.");
+    }
+
+    if (!callState.localStream) {
+        callState.localStream = new MediaStream();
+    }
+
+    callState.localStream.addTrack(track);
+    for (const extraTrack of tempStream.getTracks()) {
+        if (extraTrack.id !== track.id) {
+            extraTrack.stop();
+        }
+    }
+
+    return track;
+}
+
 async function ensureLocalStream(mode) {
     const wantsVideo = mode === "video";
 
-    if (!callState.localStream) {
-        try {
-            callState.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: true,
-            });
-        } catch {
-            callState.localStream = await navigator.mediaDevices.getUserMedia({
+    if (callState.localStreamPromise) {
+        await callState.localStreamPromise;
+    }
+
+    callState.localStreamPromise = (async () => {
+        if (!callState.localStream) {
+            callState.localStream = new MediaStream();
+        }
+
+        if (!getLocalAudioTrack()) {
+            await addLocalTrackFromConstraints("audio", {
                 audio: true,
                 video: false,
             });
         }
-    }
 
-    if (!getLocalAudioTrack()) {
-        const audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false,
-        });
-        const audioTrack = audioStream.getAudioTracks()[0];
-        if (audioTrack) {
-            callState.localStream.addTrack(audioTrack);
+        if (wantsVideo && !getLocalVideoTrack()) {
+            await addLocalTrackFromConstraints("video", {
+                audio: false,
+                video: {
+                    facingMode: "user",
+                },
+            });
         }
-    }
 
-    const videoTrack = getLocalVideoTrack();
-    if (videoTrack) {
-        videoTrack.enabled = wantsVideo;
-    }
+        const audioTrack = getLocalAudioTrack();
+        const videoTrack = getLocalVideoTrack();
 
-    callState.micEnabled = Boolean(getLocalAudioTrack()?.enabled);
-    callState.cameraEnabled = Boolean(videoTrack && wantsVideo);
-    updateLocalCallPreview();
+        if (audioTrack) {
+            audioTrack.enabled = true;
+        }
+
+        if (videoTrack) {
+            videoTrack.enabled = wantsVideo;
+        }
+
+        callState.micEnabled = Boolean(audioTrack?.enabled);
+        callState.cameraEnabled = Boolean(videoTrack && wantsVideo);
+        updateLocalCallPreview();
+    })();
+
+    try {
+        await callState.localStreamPromise;
+    } finally {
+        callState.localStreamPromise = null;
+    }
 }
 
 async function ensurePeer(userId) {
@@ -1942,6 +2428,7 @@ async function handleCallJoined(payload) {
 
     try {
         await ensureLocalStream("audio");
+        await syncAllPeerTracks();
     } catch (error) {
         toast("Не удалось получить доступ к микрофону или камере.");
         stopCall(true);
@@ -1958,6 +2445,7 @@ async function handleCallJoined(payload) {
 
     openCallOverlay();
     refreshCallUi();
+    applyComposerPermissions();
 
     for (const user of callState.participants.values()) {
         const userId = Number(user.id);
@@ -1979,6 +2467,7 @@ async function handleWebRtcOffer(payload) {
     if (!callState.active || callState.chatId !== chatId) return;
 
     try {
+        await ensureLocalStream("audio");
         const peer = await ensurePeer(fromUserId);
         await syncPeerLocalTracks(peer);
         callState.participants.set(fromUserId, {
@@ -1990,6 +2479,7 @@ async function handleWebRtcOffer(payload) {
         refreshCallUi();
 
         await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        await flushPendingIceCandidates(fromUserId);
         const answer = await peer.pc.createAnswer();
         await peer.pc.setLocalDescription(answer);
 
@@ -2014,6 +2504,7 @@ async function handleWebRtcAnswer(payload) {
 
     try {
         await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        await flushPendingIceCandidates(fromUserId);
     } catch (error) {
         console.error(error);
     }
@@ -2026,7 +2517,10 @@ async function handleWebRtcIce(payload) {
     if (!callState.active || callState.chatId !== chatId) return;
 
     const peer = callState.peers.get(fromUserId);
-    if (!peer) return;
+    if (!peer || !peer.pc.remoteDescription) {
+        queuePendingIceCandidate(fromUserId, payload.candidate);
+        return;
+    }
 
     try {
         await peer.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
@@ -2121,7 +2615,7 @@ async function startCall() {
     try {
         await ensureLocalStream("audio");
     } catch {
-        toast("Нужен доступ к микрофону и камере.");
+        toast("Нужен доступ к микрофону.");
         return;
     }
 
@@ -2151,7 +2645,7 @@ async function joinExistingCall() {
     try {
         await ensureLocalStream("audio");
     } catch {
-        toast("Нужен доступ к микрофону и камере.");
+        toast("Нужен доступ к микрофону.");
         return;
     }
 
@@ -2171,6 +2665,7 @@ function stopCall(notify = true) {
     }
 
     clearPeers();
+    clearPendingIceCandidates();
 
     if (callState.localStream) {
         for (const track of callState.localStream.getTracks()) {
@@ -2182,6 +2677,7 @@ function stopCall(notify = true) {
     callState.chatId = null;
     callState.mode = "audio";
     callState.localStream = null;
+    callState.localStreamPromise = null;
     callState.participants.clear();
     callState.micEnabled = true;
     callState.cameraEnabled = false;
@@ -2196,6 +2692,7 @@ function stopCall(notify = true) {
     if (currentCallChatId && state.currentChatId === currentCallChatId) {
         renderChatHeader();
     }
+    applyComposerPermissions();
 }
 
 function connectSocket() {
@@ -2230,7 +2727,14 @@ function connectSocket() {
         }
     });
 
-    socket.on("connect_error", () => {
+    socket.on("connect_error", (error) => {
+        if (error?.message === "AUTH_FAILED") {
+            toast("Сессия устарела. Войдите снова.");
+            logout().catch(() => {
+                // ignore
+            });
+            return;
+        }
         toast("Проблема с realtime-соединением. Идёт переподключение...");
     });
 
@@ -2517,30 +3021,16 @@ function bindUi() {
         setSelectedAttachment("image", file);
     });
 
-    dom.audioInput.addEventListener("change", () => {
-        const file = dom.audioInput.files?.[0];
-        if (!file) return;
-
-        if (!file.type.startsWith("audio/")) {
-            toast("Выберите аудиофайл.");
-            dom.audioInput.value = "";
-            return;
-        }
-
-        setSelectedAttachment("audio", file);
+    dom.recordVoiceBtn?.addEventListener("click", () => {
+        startRecording("audio").catch((error) => {
+            toast(error.message || "Не удалось записать голосовое сообщение.");
+        });
     });
 
-    dom.videoInput.addEventListener("change", () => {
-        const file = dom.videoInput.files?.[0];
-        if (!file) return;
-
-        if (!file.type.startsWith("video/")) {
-            toast("Выберите видеофайл.");
-            dom.videoInput.value = "";
-            return;
-        }
-
-        setSelectedAttachment("video", file);
+    dom.recordVideoBtn?.addEventListener("click", () => {
+        startRecording("video").catch((error) => {
+            toast(error.message || "Не удалось записать видеосообщение.");
+        });
     });
 
     dom.emojiBtn.addEventListener("click", (event) => {
@@ -2644,6 +3134,11 @@ function bindUi() {
     });
 
     window.addEventListener("beforeunload", () => {
+        if (state.recording.kind) {
+            stopRecording({ sendAfterStop: false, cancel: true }).catch(() => {
+                // ignore
+            });
+        }
         if (state.socket && callState.active && callState.chatId) {
             state.socket.emit("call:leave", { chatId: callState.chatId });
         }

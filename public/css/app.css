@@ -397,6 +397,18 @@ textarea:disabled {
     pointer-events: none;
 }
 
+.record-btn.recording {
+    color: #fff;
+    border-color: rgba(255, 103, 103, 0.72);
+    background: linear-gradient(135deg, rgba(255, 92, 92, 0.86), rgba(255, 131, 104, 0.82));
+    box-shadow: 0 0 0 4px rgba(255, 92, 92, 0.16);
+}
+
+.record-btn.busy {
+    border-color: rgba(242, 202, 120, 0.56);
+    background: rgba(242, 202, 120, 0.16);
+}
+
 .hint {
     margin: 0;
     font-size: 13px;
@@ -1013,13 +1025,43 @@ code {
     border: 1px solid var(--line);
 }
 
+.msg-media-card {
+    margin-top: 6px;
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 18px;
+    border: 1px solid rgba(160, 190, 220, 0.16);
+    background: rgba(2, 10, 19, 0.3);
+}
+
+.msg-voice-card {
+    min-width: min(320px, 76vw);
+}
+
+.msg-video-card {
+    min-width: min(320px, 76vw);
+}
+
+.msg-voice-head {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #dfeafb;
+}
+
 .msg-audio,
 .msg-video {
     width: 100%;
-    margin-top: 4px;
     border-radius: 12px;
     border: 1px solid rgba(160, 190, 220, 0.18);
     background: rgba(4, 11, 18, 0.62);
+}
+
+.msg-video {
+    max-height: 320px;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
 }
 
 .composer {
@@ -1081,6 +1123,85 @@ code {
     color: var(--muted);
     font-size: 13px;
     background: rgba(255, 255, 255, 0.02);
+}
+
+.composer-status-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(160, 190, 220, 0.14);
+    background:
+        radial-gradient(180px 100px at 0 0, rgba(66, 181, 255, 0.1), transparent 72%),
+        rgba(8, 17, 28, 0.76);
+}
+
+.composer-status-card.recording-card {
+    border-color: rgba(255, 103, 103, 0.28);
+    background:
+        radial-gradient(160px 90px at 0 0, rgba(255, 92, 92, 0.18), transparent 72%),
+        rgba(20, 10, 12, 0.78);
+}
+
+.composer-status-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    font-size: 20px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.composer-status-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.composer-status-copy strong,
+.composer-status-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-status-copy strong {
+    color: #eff6ff;
+    font-size: 14px;
+}
+
+.composer-status-copy span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.composer-status-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.compact-btn {
+    min-height: 38px;
+    padding: 8px 12px;
+}
+
+.composer-preview-image,
+.composer-preview-video {
+    grid-column: 1 / -1;
+    width: min(280px, 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(160, 190, 220, 0.16);
+}
+
+.composer-preview-audio {
+    grid-column: 1 / -1;
+    width: min(360px, 100%);
 }
 
 .info-panel {
@@ -1895,6 +2016,20 @@ body.drawer-open .mobile-drawer-backdrop {
     .composer-tools,
     .composer .btn.primary {
         grid-column: 1 / -1;
+    }
+
+    .composer-status-card {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .composer-status-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .composer-status-actions .btn {
+        flex: 1 1 0;
     }
 
     .emoji-panel {
