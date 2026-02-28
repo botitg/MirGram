@@ -131,6 +131,24 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+function publicAssetPathToDisk(value) {
+    const input = String(value || '').trim();
+    if (!input.startsWith('/uploads/')) return null;
+    return path.join(__dirname, input.replace(/^\/+/, '').replace(/\//g, path.sep));
+}
+
+async function removeUploadedFile(publicPath) {
+    const diskPath = publicAssetPathToDisk(publicPath);
+    if (!diskPath) return;
+    try {
+        await fs.promises.unlink(diskPath);
+    } catch (error) {
+        if (error?.code !== 'ENOENT') {
+            console.error('[uploads] failed to remove file', diskPath, error);
+        }
+    }
+}
+
 function hashSeed(value) {
     let hash = 0;
     const input = String(value || 'mirx');
@@ -350,16 +368,72 @@ async function userIdentityInChat(chatId, userId) {
     );
 }
 
+const MESSAGE_SELECT_SQL = `
+    SELECT m.id,
+            m.chat_id AS chatId,
+            m.type,
+            m.text,
+            m.image_url AS imageUrl,
+            m.created_at AS createdAt,
+            m.user_id AS senderId,
+            u.username AS senderUsername,
+            m.sender_name AS senderName,
+            m.sender_avatar AS senderAvatar,
+            m.reply_to_message_id AS replyToMessageId,
+            m.deleted_at AS deletedAt,
+            rm.id AS replyId,
+            rm.type AS replyType,
+            rm.text AS replyText,
+            rm.image_url AS replyImageUrl,
+            rm.created_at AS replyCreatedAt,
+            rm.user_id AS replySenderId,
+            ru.username AS replySenderUsername,
+            rm.sender_name AS replySenderName,
+            rm.sender_avatar AS replySenderAvatar,
+            rm.deleted_at AS replyDeletedAt
+     FROM messages m
+     LEFT JOIN users u ON u.id = m.user_id
+     LEFT JOIN messages rm ON rm.id = m.reply_to_message_id
+     LEFT JOIN users ru ON ru.id = rm.user_id
+`;
+
 async function serializeMessage(row) {
-    const mediaUrl = toPublicUrl(row.imageUrl);
+    const isDeleted = Boolean(row.deletedAt);
+    const mediaUrl = !isDeleted ? toPublicUrl(row.imageUrl) : null;
+    const replyMediaUrl = row.replyDeletedAt ? null : toPublicUrl(row.replyImageUrl);
     return {
         id: row.id,
         chatId: row.chatId,
-        type: row.type,
-        text: row.text,
+        type: isDeleted ? 'deleted' : row.type,
+        originalType: row.type,
+        text: isDeleted ? '' : row.text,
         imageUrl: mediaUrl,
         mediaUrl,
         createdAt: row.createdAt,
+        deletedAt: row.deletedAt || null,
+        isDeleted,
+        replyToMessageId: row.replyToMessageId || null,
+        replyTo: row.replyId
+            ? {
+                  id: row.replyId,
+                  type: row.replyDeletedAt ? 'deleted' : row.replyType,
+                  originalType: row.replyType,
+                  text: row.replyDeletedAt ? '' : row.replyText,
+                  imageUrl: replyMediaUrl,
+                  mediaUrl: replyMediaUrl,
+                  createdAt: row.replyCreatedAt,
+                  deletedAt: row.replyDeletedAt || null,
+                  isDeleted: Boolean(row.replyDeletedAt),
+                  sender: row.replySenderId
+                      ? {
+                            id: row.replySenderId,
+                            username: row.replySenderUsername,
+                            displayName: row.replySenderName,
+                            avatarUrl: row.replySenderAvatar,
+                        }
+                      : null,
+              }
+            : null,
         sender: row.senderId
             ? {
                   id: row.senderId,
@@ -373,24 +447,24 @@ async function serializeMessage(row) {
 
 async function readMessageById(messageId) {
     return db.get(
-        `SELECT m.id,
-                m.chat_id AS chatId,
-                m.type,
-                m.text,
-                m.image_url AS imageUrl,
-                m.created_at AS createdAt,
-                m.user_id AS senderId,
-                u.username AS senderUsername,
-                m.sender_name AS senderName,
-                m.sender_avatar AS senderAvatar
-         FROM messages m
-         LEFT JOIN users u ON u.id = m.user_id
+        `${MESSAGE_SELECT_SQL}
          WHERE m.id = ?`,
         [messageId]
     );
 }
 
-async function createMessage({ chatId, userId, type, text = '', imageUrl = null }) {
+async function readLatestMessageByChatId(chatId) {
+    const row = await db.get(
+        `${MESSAGE_SELECT_SQL}
+         WHERE m.chat_id = ?
+         ORDER BY m.id DESC
+         LIMIT 1`,
+        [chatId]
+    );
+    return row ? serializeMessage(row) : null;
+}
+
+async function createMessage({ chatId, userId, type, text = '', imageUrl = null, replyToMessageId = null }) {
     let senderName = 'System';
     let senderAvatar = '';
 
@@ -403,10 +477,24 @@ async function createMessage({ chatId, userId, type, text = '', imageUrl = null 
         senderAvatar = identity.groupAvatarUrl || identity.baseAvatar || '';
     }
 
+    let safeReplyToMessageId = replyToMessageId ? Number(replyToMessageId) : null;
+    if (safeReplyToMessageId) {
+        const replyTarget = await db.get(
+            `SELECT id, chat_id AS chatId
+             FROM messages
+             WHERE id = ?`,
+            [safeReplyToMessageId]
+        );
+        assert(replyTarget, 'Сообщение для ответа не найдено.', 404);
+        assert(Number(replyTarget.chatId) === Number(chatId), 'Нельзя отвечать на сообщение из другого чата.', 400);
+    } else {
+        safeReplyToMessageId = null;
+    }
+
     const result = await db.run(
-        `INSERT INTO messages (chat_id, user_id, type, text, image_url, sender_name, sender_avatar, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [chatId, userId || null, type, text, imageUrl, senderName, senderAvatar, nowIso()]
+        `INSERT INTO messages (chat_id, user_id, type, text, image_url, sender_name, sender_avatar, reply_to_message_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [chatId, userId || null, type, text, imageUrl, senderName, senderAvatar, safeReplyToMessageId, nowIso()]
     );
 
     const row = await readMessageById(result.lastID);
@@ -678,9 +766,12 @@ async function initializeDatabase() {
                 image_url TEXT,
                 sender_name TEXT NOT NULL,
                 sender_avatar TEXT,
+                reply_to_message_id INTEGER,
+                deleted_at TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY(reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS notification_subscriptions (
@@ -741,9 +832,12 @@ async function initializeDatabase() {
                 image_url TEXT,
                 sender_name TEXT NOT NULL,
                 sender_avatar TEXT,
+                reply_to_message_id INTEGER,
+                deleted_at TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY(reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS notification_subscriptions (
@@ -762,6 +856,8 @@ async function initializeDatabase() {
         await db.exec(`
             ALTER TABLE users ADD COLUMN IF NOT EXISTS username_key TEXT;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+            ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+            ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TEXT;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);
         `);
@@ -779,6 +875,15 @@ async function initializeDatabase() {
 
         await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);`);
 
+        const messageColumns = await db.all(`PRAGMA table_info(messages)`);
+        const messageColumnNames = new Set(messageColumns.map((column) => column.name));
+        if (!messageColumnNames.has('reply_to_message_id')) {
+            await db.exec(`ALTER TABLE messages ADD COLUMN reply_to_message_id INTEGER;`);
+        }
+        if (!messageColumnNames.has('deleted_at')) {
+            await db.exec(`ALTER TABLE messages ADD COLUMN deleted_at TEXT;`);
+        }
+
         const messagesTable = await db.get(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'`);
         if (messagesTable?.sql && messagesTable.sql.includes(`CHECK(type IN ('text', 'image', 'system'))`)) {
             await db.exec(`
@@ -793,9 +898,12 @@ async function initializeDatabase() {
                     image_url TEXT,
                     sender_name TEXT NOT NULL,
                     sender_avatar TEXT,
+                    reply_to_message_id INTEGER,
+                    deleted_at TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
+                    FOREIGN KEY(reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL
                 );
 
                 INSERT INTO messages (id, chat_id, user_id, type, text, image_url, sender_name, sender_avatar, created_at)
@@ -1575,18 +1683,7 @@ app.get(
         let rows;
         if (beforeId > 0) {
             rows = await db.all(
-                `SELECT m.id,
-                    m.chat_id AS chatId,
-                    m.type,
-                    m.text,
-                    m.image_url AS imageUrl,
-                    m.created_at AS createdAt,
-                    m.user_id AS senderId,
-                    u.username AS senderUsername,
-                    m.sender_name AS senderName,
-                    m.sender_avatar AS senderAvatar
-             FROM messages m
-             LEFT JOIN users u ON u.id = m.user_id
+                `${MESSAGE_SELECT_SQL}
              WHERE m.chat_id = ? AND m.id < ?
              ORDER BY m.id DESC
              LIMIT ?`,
@@ -1594,18 +1691,7 @@ app.get(
             );
         } else {
             rows = await db.all(
-                `SELECT m.id,
-                    m.chat_id AS chatId,
-                    m.type,
-                    m.text,
-                    m.image_url AS imageUrl,
-                    m.created_at AS createdAt,
-                    m.user_id AS senderId,
-                    u.username AS senderUsername,
-                    m.sender_name AS senderName,
-                    m.sender_avatar AS senderAvatar
-             FROM messages m
-             LEFT JOIN users u ON u.id = m.user_id
+                `${MESSAGE_SELECT_SQL}
              WHERE m.chat_id = ?
              ORDER BY m.id DESC
              LIMIT ?`,
@@ -1629,6 +1715,7 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const text = String(req.body.text || '').trim();
+        const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         assert(text.length > 0, 'Сообщение не может быть пустым.', 400);
         assert(text.length <= 4000, 'Сообщение слишком длинное.', 400);
@@ -1642,6 +1729,7 @@ app.post(
             userId: req.user.id,
             type: 'text',
             text,
+            replyToMessageId,
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
@@ -1665,6 +1753,7 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const caption = String(req.body.caption || '').trim();
+        const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Доступ запрещён.', 403);
@@ -1680,6 +1769,7 @@ app.post(
             type: 'image',
             text: caption,
             imageUrl,
+            replyToMessageId,
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
@@ -1703,6 +1793,7 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const caption = String(req.body.caption || '').trim();
+        const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Доступ запрещён.', 403);
@@ -1718,6 +1809,7 @@ app.post(
             type: 'audio',
             text: caption,
             imageUrl: audioUrl,
+            replyToMessageId,
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
@@ -1741,6 +1833,7 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const caption = String(req.body.caption || '').trim();
+        const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Доступ запрещён.', 403);
@@ -1756,11 +1849,66 @@ app.post(
             type: 'video',
             text: caption,
             imageUrl: videoUrl,
+            replyToMessageId,
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
         await notifyChatMessage(chatId, req.user.id, message);
         res.json({ message });
+    })
+);
+
+app.delete(
+    '/api/chats/:chatId/messages/:messageId',
+    authMiddleware,
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const messageId = Number(req.params.messageId);
+
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+        const chat = await db.get(
+            `SELECT type
+             FROM chats
+             WHERE id = ?`,
+            [chatId]
+        );
+
+        const row = await readMessageById(messageId);
+        assert(row, 'Сообщение не найдено.', 404);
+        assert(Number(row.chatId) === chatId, 'Сообщение не принадлежит этому чату.', 400);
+        assert(row.senderId, 'Системное сообщение нельзя удалить.', 403);
+
+        const canDelete = Number(row.senderId) === Number(req.user.id)
+            || (chat?.type === 'group' && canManageMembers(membership.role));
+        assert(canDelete, 'У вас нет прав на удаление этого сообщения.', 403);
+
+        if (row.deletedAt) {
+            const message = await serializeMessage(row);
+            const lastMessage = await readLatestMessageByChatId(chatId);
+            res.json({ message, lastMessage });
+            return;
+        }
+
+        const originalMediaPath = row.imageUrl;
+        await db.run(
+            `UPDATE messages
+             SET text = '', image_url = NULL, deleted_at = ?
+             WHERE id = ?`,
+            [nowIso(), messageId]
+        );
+        await removeUploadedFile(originalMediaPath);
+
+        const message = await serializeMessage(await readMessageById(messageId));
+        const lastMessage = await readLatestMessageByChatId(chatId);
+
+        io.to(chatRoom(chatId)).emit('message:deleted', {
+            chatId,
+            message,
+            lastMessage,
+        });
+
+        res.json({ message, lastMessage });
     })
 );
 

@@ -1,5 +1,6 @@
-﻿const TOKEN_KEY = "mirx.token";
+const TOKEN_KEY = "mirx.token";
 const NOTIFICATION_PROMPT_KEY = "mirx.notifications.prompted";
+const RECENT_EMOJIS_KEY = "mirx.emojis.recent";
 const runtimeConfig = window.MIRNA_CONFIG || {};
 
 function normalizeBaseUrl(value) {
@@ -56,12 +57,11 @@ function readStoredToken() {
     }
 
     try {
-        const legacyToken = window.localStorage?.getItem(TOKEN_KEY) || "";
-        if (legacyToken) {
-            window.sessionStorage?.setItem(TOKEN_KEY, legacyToken);
-            window.localStorage?.removeItem(TOKEN_KEY);
+        const persistedToken = window.localStorage?.getItem(TOKEN_KEY) || "";
+        if (persistedToken) {
+            window.sessionStorage?.setItem(TOKEN_KEY, persistedToken);
         }
-        return legacyToken;
+        return persistedToken;
     } catch {
         return "";
     }
@@ -87,6 +87,7 @@ const state = {
     selectedVideo: null,
     selectedAttachmentMeta: null,
     selectedAttachmentPreviewUrl: "",
+    replyToMessage: null,
     profileAvatarFile: null,
     profileAvatarPreviewUrl: "",
     callStatusByChat: new Map(),
@@ -94,6 +95,9 @@ const state = {
     pushEnabled: false,
     pendingCallChatId: null,
     notificationPermission: typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+    emojiQuery: "",
+    emojiCategory: "recent",
+    recentEmojis: [],
     recording: {
         chatId: null,
         kind: null,
@@ -137,7 +141,38 @@ const rtcConfig = {
 
 const MOBILE_BREAKPOINT = 840;
 
-const EMOJIS = ["😀", "😌", "😍", "😭", "😡", "🤝", "🔥", "❤️", "🎉", "✅", "📞", "🎤", "📷", "🚀", "⚡", "👍", "👎", "🙏", "😅", "🤖", "🌍", "💬", "🔒", "🛡️"];
+const EMOJI_GROUPS = [
+    {
+        key: "recent",
+        icon: "🕘",
+        title: "Недавние",
+        emojis: [],
+    },
+    {
+        key: "smileys",
+        icon: "😀",
+        title: "Улыбки",
+        emojis: ["😀", "😃", "😄", "😁", "😅", "😂", "🤣", "😊", "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "😭", "😡", "😴", "🤯", "🥳", "😇", "🤔", "🫡", "🤝"],
+    },
+    {
+        key: "people",
+        icon: "🙌",
+        title: "Люди",
+        emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "🫶", "💪", "👀", "💬", "🧠", "❤️", "🔥", "✨", "💯", "✅", "❌", "⚡", "🎉", "🏆"],
+    },
+    {
+        key: "objects",
+        icon: "📱",
+        title: "Объекты",
+        emojis: ["📞", "🎤", "🎧", "📷", "🎬", "💻", "📱", "⌚", "🔔", "🔒", "🛡️", "💡", "📌", "📎", "✉️", "🗂️", "🧩", "🛰️"],
+    },
+    {
+        key: "nature",
+        icon: "🌍",
+        title: "Мир",
+        emojis: ["🌍", "🌎", "🌏", "🌙", "⭐", "☀️", "🌧️", "🌈", "🌊", "🌿", "🍀", "🌲", "🌺", "🍎", "☕", "🍕", "🚀", "🏙️"],
+    },
+];
 
 const dom = {
     authScreen: document.getElementById("authScreen"),
@@ -367,6 +402,14 @@ async function maybePromptNotificationPermission() {
 function notifyBrowser(title, options = {}) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
 
+    if (document.visibilityState === "visible" || !state.serviceWorkerRegistration) {
+        new Notification(title, {
+            icon: "/assets/icon.png",
+            ...options,
+        });
+        return;
+    }
+
     if (state.serviceWorkerRegistration) {
         state.serviceWorkerRegistration.showNotification(title, {
             icon: "/assets/icon.png",
@@ -375,13 +418,7 @@ function notifyBrowser(title, options = {}) {
         }).catch(() => {
             // ignore
         });
-        return;
     }
-
-    new Notification(title, {
-        icon: "/assets/icon.png",
-        ...options,
-    });
 }
 
 function clearProfileAvatarPreviewUrl() {
@@ -466,6 +503,66 @@ function safePlayMediaElement(element) {
     }
 }
 
+function getMessageTypeLabel(message) {
+    if (!message) return "Сообщение";
+    if (message.isDeleted || message.type === "deleted") return "Сообщение удалено";
+    if (message.type === "image") return "📷 Фото";
+    if (message.type === "audio") return "🎙 Голосовое сообщение";
+    if (message.type === "video") return "🎬 Видеосообщение";
+    if (message.type === "system") return message.text || "Системное сообщение";
+    return message.text || "Сообщение";
+}
+
+function getReplySnippet(message) {
+    if (!message) return "";
+    if (message.isDeleted || message.type === "deleted") {
+        return "Сообщение удалено";
+    }
+    if (message.text) {
+        return message.text.length > 120 ? `${message.text.slice(0, 117)}...` : message.text;
+    }
+    return getMessageTypeLabel(message);
+}
+
+function findMessageById(messageId) {
+    const id = Number(messageId);
+    if (!id) return null;
+    return state.messages.find((message) => Number(message.id) === id) || null;
+}
+
+function canDeleteMessage(message) {
+    if (!message || !message.sender || message.type === "system" || message.isDeleted || !state.me) {
+        return false;
+    }
+    if (Number(message.sender.id) === Number(state.me.id)) {
+        return true;
+    }
+    return state.currentChat?.type === "group" && (state.myRole === "owner" || state.myRole === "admin");
+}
+
+function clearReplyTarget() {
+    state.replyToMessage = null;
+}
+
+function setReplyTarget(messageId) {
+    const target = findMessageById(messageId);
+    if (!target || target.type === "system") return;
+    state.replyToMessage = target;
+    renderSelectedImage();
+    dom.messageInput.focus();
+}
+
+function updateViewportMetrics() {
+    const appHeight = window.visualViewport?.height || window.innerHeight;
+    const keyboardOffset = Math.max(
+        0,
+        Math.round((window.innerHeight || appHeight) - appHeight - (window.visualViewport?.offsetTop || 0))
+    );
+    document.documentElement.style.setProperty("--app-height", `${Math.round(appHeight)}px`);
+    document.documentElement.style.setProperty("--keyboard-offset", `${keyboardOffset}px`);
+    document.body.classList.toggle("keyboard-open", isMobileViewport() && keyboardOffset > 96);
+}
+
 function getToken() {
     return state.token;
 }
@@ -475,13 +572,39 @@ function setToken(token) {
     try {
         if (state.token) {
             window.sessionStorage?.setItem(TOKEN_KEY, state.token);
+            window.localStorage?.setItem(TOKEN_KEY, state.token);
         } else {
             window.sessionStorage?.removeItem(TOKEN_KEY);
+            window.localStorage?.removeItem(TOKEN_KEY);
         }
-        window.localStorage?.removeItem(TOKEN_KEY);
     } catch {
         // ignore
     }
+}
+
+function loadRecentEmojis() {
+    try {
+        const parsed = JSON.parse(window.localStorage?.getItem(RECENT_EMOJIS_KEY) || "[]");
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((item) => typeof item === "string" && item.trim()).slice(0, 18);
+    } catch {
+        return [];
+    }
+}
+
+function saveRecentEmojis() {
+    try {
+        window.localStorage?.setItem(RECENT_EMOJIS_KEY, JSON.stringify(state.recentEmojis.slice(0, 18)));
+    } catch {
+        // ignore
+    }
+}
+
+function rememberEmoji(emoji) {
+    const value = String(emoji || "").trim();
+    if (!value) return;
+    state.recentEmojis = [value, ...state.recentEmojis.filter((item) => item !== value)].slice(0, 18);
+    saveRecentEmojis();
 }
 
 async function api(path, options = {}) {
@@ -790,17 +913,7 @@ function renderChats() {
 
     const chatItems = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
-        const lastText = chat.lastMessage
-            ? (
-                chat.lastMessage.type === "image"
-                    ? "📷 Фото"
-                    : chat.lastMessage.type === "audio"
-                        ? "🎙 Голосовое сообщение"
-                        : chat.lastMessage.type === "video"
-                            ? "🎬 Видеосообщение"
-                            : (chat.lastMessage.text || "Системное сообщение")
-            )
-            : "Нет сообщений";
+        const lastText = chat.lastMessage ? getMessageTypeLabel(chat.lastMessage) : "Нет сообщений";
         const peerOnline = chat.type === "private" && chat.peerId ? isOnline(chat.peerId) : false;
         const avatarBody = chat.avatarUrl
             ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
@@ -953,6 +1066,18 @@ function renderVoiceMessagePlayer(message) {
     `;
 }
 
+function renderReplyCard(replyTo) {
+    if (!replyTo) return "";
+
+    const author = replyTo.sender?.displayName || replyTo.sender?.username || "Сообщение";
+    return `
+        <div class="msg-reply-card">
+            <strong>${escapeHtml(author)}</strong>
+            <span>${escapeHtml(getReplySnippet(replyTo))}</span>
+        </div>
+    `;
+}
+
 function renderMessages() {
     if (!state.messages.length) {
         dom.messages.innerHTML = `<p class="hint">Пока нет сообщений</p>`;
@@ -965,19 +1090,21 @@ function renderMessages() {
         const header = message.sender
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
             : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
+        const reply = renderReplyCard(message.replyTo);
+        const isDeleted = Boolean(message.isDeleted || message.type === "deleted");
 
         const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
-        const image = message.type === "image" && mediaUrl
+        const image = !isDeleted && message.type === "image" && mediaUrl
             ? `
                 <div class="msg-media-card">
                     <img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" />
                 </div>
             `
             : "";
-        const audio = message.type === "audio"
+        const audio = !isDeleted && message.type === "audio"
             ? renderVoiceMessagePlayer(message)
             : "";
-        const video = message.type === "video" && mediaUrl
+        const video = !isDeleted && message.type === "video" && mediaUrl
             ? `
                 <div class="msg-media-card msg-video-card">
                     <div class="msg-voice-head">🎬 Видеосообщение</div>
@@ -985,9 +1112,21 @@ function renderMessages() {
                 </div>
             `
             : "";
-        const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
+        const text = isDeleted
+            ? `<div class="msg-deleted-copy">Сообщение удалено</div>`
+            : message.text
+                ? `<div>${escapeHtml(message.text)}</div>`
+                : "";
+        const actions = message.type !== "system"
+            ? `
+                <div class="msg-actions">
+                    <button type="button" class="msg-action-btn" data-reply-message-id="${message.id}" ${isDeleted ? "disabled" : ""}>Ответить</button>
+                    ${canDeleteMessage(message) ? `<button type="button" class="msg-action-btn danger" data-delete-message-id="${message.id}">Удалить</button>` : ""}
+                </div>
+            `
+            : "";
 
-        return `<article class="${cls}">${header}${image}${audio}${video}${text}</article>`;
+        return `<article class="${cls}" data-message-id="${message.id}">${header}${reply}${image}${audio}${video}${text}${actions}</article>`;
     }).join("");
 
     for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
@@ -1106,6 +1245,11 @@ async function loadChats() {
 async function openChat(chatId) {
     if (state.recording.kind && Number(chatId) !== Number(state.currentChatId)) {
         await stopRecording({ sendAfterStop: false, cancel: true });
+    }
+    if (Number(chatId) !== Number(state.currentChatId)) {
+        clearReplyTarget();
+        clearSelectedAttachments();
+        renderSelectedImage();
     }
 
     state.currentChatId = Number(chatId);
@@ -1242,6 +1386,7 @@ async function logout() {
     state.selectedAudio = null;
     state.selectedVideo = null;
     state.selectedAttachmentMeta = null;
+    state.replyToMessage = null;
     state.profileAvatarFile = null;
     clearProfileAvatarPreviewUrl();
     clearSelectedAttachmentPreviewUrl();
@@ -1732,6 +1877,9 @@ async function sendAttachmentMessage(chatId, attachment, caption = "") {
     const form = new FormData();
     form.append(attachment.field, attachment.file);
     form.append("caption", caption);
+    if (state.replyToMessage?.id) {
+        form.append("replyToMessageId", String(state.replyToMessage.id));
+    }
 
     const response = await api(`/api/chats/${chatId}/messages/${attachment.endpoint}`, {
         method: "POST",
@@ -1949,12 +2097,16 @@ async function sendMessage(event) {
         } else {
             response = await api(`/api/chats/${state.currentChatId}/messages`, {
                 method: "POST",
-                body: { text },
+                body: {
+                    text,
+                    replyToMessageId: state.replyToMessage?.id || null,
+                },
             });
         }
 
         dom.messageInput.value = "";
         clearSelectedAttachments();
+        clearReplyTarget();
         renderSelectedImage();
 
         if (response?.message) {
@@ -2002,42 +2154,64 @@ function renderSelectedImage() {
     }
 
     const attachment = getSelectedAttachment();
-    if (!attachment) {
+    const replyTo = state.replyToMessage;
+    if (!attachment && !replyTo) {
         dom.selectedImageBar.classList.add("hidden");
         dom.selectedImageBar.textContent = "";
         return;
     }
 
-    const attachmentMeta = attachment.meta || {};
+    const attachmentMeta = attachment?.meta || {};
     let preview = "";
-    if (attachment.kind === "image" && attachment.previewUrl) {
+    if (attachment?.kind === "image" && attachment.previewUrl) {
         preview = `<img class="composer-preview-image" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр фото" />`;
     }
-    if (attachment.kind === "audio" && attachment.previewUrl) {
+    if (attachment?.kind === "audio" && attachment.previewUrl) {
         preview = `<audio class="composer-preview-audio" controls preload="metadata" src="${escapeHtml(attachment.previewUrl)}"></audio>`;
     }
-    if (attachment.kind === "video" && attachment.previewUrl) {
+    if (attachment?.kind === "video" && attachment.previewUrl) {
         preview = `<video class="composer-preview-video" controls preload="metadata" playsinline src="${escapeHtml(attachment.previewUrl)}"></video>`;
     }
 
-    const metaText = attachmentMeta.recorded
+    const metaText = attachment && attachmentMeta.recorded
         ? ` · ${formatDuration(attachmentMeta.durationMs)}`
+        : "";
+    const replyCard = replyTo
+        ? `
+            <div class="composer-status-card reply-card">
+                <div class="composer-status-icon">↩</div>
+                <div class="composer-status-copy">
+                    <strong>Ответ на ${escapeHtml(replyTo.sender?.displayName || replyTo.sender?.username || "сообщение")}</strong>
+                    <span>${escapeHtml(getReplySnippet(replyTo))}</span>
+                </div>
+                <div class="composer-status-actions">
+                    <button type="button" id="clearReplyBtn" class="btn ghost compact-btn">Отмена</button>
+                </div>
+            </div>
+        `
+        : "";
+    const attachmentCard = attachment
+        ? `
+            <div class="composer-status-card">
+                <div class="composer-status-icon">${escapeHtml(attachment.label.split(" ")[0])}</div>
+                <div class="composer-status-copy">
+                    <strong>${escapeHtml(attachment.label)}${escapeHtml(metaText)}</strong>
+                    <span>${escapeHtml(attachment.file.name)}</span>
+                </div>
+                <div class="composer-status-actions">
+                    <button type="button" id="clearImageBtn" class="btn ghost compact-btn">Убрать</button>
+                </div>
+                ${preview}
+            </div>
+        `
         : "";
 
     dom.selectedImageBar.classList.remove("hidden");
-    dom.selectedImageBar.innerHTML = `
-        <div class="composer-status-card">
-            <div class="composer-status-icon">${escapeHtml(attachment.label.split(" ")[0])}</div>
-            <div class="composer-status-copy">
-                <strong>${escapeHtml(attachment.label)}${escapeHtml(metaText)}</strong>
-                <span>${escapeHtml(attachment.file.name)}</span>
-            </div>
-            <div class="composer-status-actions">
-                <button type="button" id="clearImageBtn" class="btn ghost compact-btn">Убрать</button>
-            </div>
-            ${preview}
-        </div>
-    `;
+    dom.selectedImageBar.innerHTML = `${replyCard}${attachmentCard}`;
+    document.getElementById("clearReplyBtn")?.addEventListener("click", () => {
+        clearReplyTarget();
+        renderSelectedImage();
+    });
     document.getElementById("clearImageBtn")?.addEventListener("click", () => {
         clearSelectedAttachments();
         renderSelectedImage();
@@ -2045,7 +2219,93 @@ function renderSelectedImage() {
 }
 
 function renderEmojiPanel() {
-    dom.emojiPanel.innerHTML = EMOJIS.map((emoji) => `<button type="button" data-emoji="${emoji}">${emoji}</button>`).join("");
+    const query = state.emojiQuery.trim().toLowerCase();
+    const groups = EMOJI_GROUPS.map((group) => ({
+        ...group,
+        emojis: group.key === "recent" ? state.recentEmojis : group.emojis,
+    }));
+    const availableGroups = groups.filter((group) => group.emojis.length > 0 || group.key !== "recent");
+    const currentGroup = availableGroups.find((group) => group.key === state.emojiCategory)
+        || availableGroups.find((group) => group.key !== "recent")
+        || availableGroups[0];
+    const emojis = query
+        ? Array.from(new Set(groups.flatMap((group) => group.emojis))).filter((emoji) => emoji.includes(state.emojiQuery))
+        : (currentGroup?.emojis || []);
+    const emptyState = emojis.length
+        ? emojis.map((emoji) => `<button type="button" class="emoji-choice" data-emoji="${emoji}" aria-label="Выбрать ${emoji}">${emoji}</button>`).join("")
+        : `<div class="emoji-empty">Ничего не найдено</div>`;
+
+    dom.emojiPanel.innerHTML = `
+        <div class="emoji-panel-shell">
+            <div class="emoji-panel-head">
+                <input type="search" id="emojiSearchInput" class="emoji-search-input" placeholder="Найти эмодзи" value="${escapeHtml(state.emojiQuery)}" />
+            </div>
+            <div class="emoji-tabs" role="tablist">
+                ${availableGroups.map((group) => `
+                    <button
+                        type="button"
+                        class="emoji-tab ${group.key === currentGroup?.key ? "active" : ""}"
+                        data-emoji-category="${group.key}"
+                        aria-label="${escapeHtml(group.title)}"
+                    >${group.icon}</button>
+                `).join("")}
+            </div>
+            <div class="emoji-grid">${emptyState}</div>
+        </div>
+    `;
+}
+
+function appendEmojiToComposer(emoji) {
+    const value = String(emoji || "").trim();
+    if (!value) return;
+    dom.messageInput.value += value;
+    rememberEmoji(value);
+    state.emojiQuery = "";
+    renderEmojiPanel();
+    dom.messageInput.focus();
+}
+
+async function deleteMessage(messageId) {
+    const message = findMessageById(messageId);
+    if (!message || !state.currentChatId) return;
+    if (!canDeleteMessage(message)) {
+        toast("У вас нет прав на удаление этого сообщения.");
+        return;
+    }
+    if (!window.confirm("Удалить сообщение для всех участников?")) {
+        return;
+    }
+
+    try {
+        const response = await api(`/api/chats/${state.currentChatId}/messages/${message.id}`, {
+            method: "DELETE",
+        });
+        if (response?.message) {
+            upsertMessage(response.message);
+        }
+        if (response && Object.prototype.hasOwnProperty.call(response, "lastMessage")) {
+            updateChatLastMessage(state.currentChatId, response.lastMessage || null);
+        }
+        renderMessages();
+        renderChats();
+    } catch (error) {
+        toast(error.message || "Не удалось удалить сообщение.");
+    }
+}
+
+function handleMessageActionClick(event) {
+    const replyButton = event.target.closest("[data-reply-message-id]");
+    if (replyButton) {
+        setReplyTarget(replyButton.dataset.replyMessageId);
+        return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-message-id]");
+    if (deleteButton) {
+        deleteMessage(deleteButton.dataset.deleteMessageId).catch(() => {
+            // ignore
+        });
+    }
 }
 
 function pauseOtherVoiceNotes(exceptAudio = null) {
@@ -2167,7 +2427,7 @@ function updateChatWithMessage(message) {
     const index = state.chats.findIndex((chat) => chat.id === chatId);
     if (index >= 0) {
         const [chat] = state.chats.splice(index, 1);
-        chat.lastMessage = message;
+        chat.lastMessage = message || null;
         state.chats.unshift(chat);
         renderChats();
         return;
@@ -2178,12 +2438,30 @@ function updateChatWithMessage(message) {
     });
 }
 
+function updateChatLastMessage(chatId, lastMessage) {
+    const id = Number(chatId);
+    if (!id) return;
+
+    const chat = state.chats.find((item) => Number(item.id) === id);
+    if (!chat) {
+        loadChats().catch(() => {
+            // ignore
+        });
+        return;
+    }
+
+    chat.lastMessage = lastMessage || null;
+}
+
 function upsertMessage(message) {
     if (!message?.id) return;
 
     const index = state.messages.findIndex((item) => Number(item.id) === Number(message.id));
     if (index >= 0) {
         state.messages[index] = message;
+        if (state.replyToMessage?.id && Number(state.replyToMessage.id) === Number(message.id)) {
+            state.replyToMessage = message;
+        }
         return;
     }
 
@@ -3102,15 +3380,8 @@ function connectSocket() {
         const isOwnMessage = Number(message.sender?.id) === Number(state.me?.id);
         if (!isOwnMessage) {
             const chatName = getCallChatName(chatId);
-            const preview = message.type === "image"
-                ? "📷 Фото"
-                : message.type === "audio"
-                    ? "🎙 Голосовое сообщение"
-                    : message.type === "video"
-                        ? "🎬 Видеосообщение"
-                        : (message.text || "Новое сообщение");
             notifyBrowser(chatName, {
-                body: preview,
+                body: getMessageTypeLabel(message),
                 tag: `message-${chatId}`,
                 data: { url: `/?chat=${chatId}` },
             });
@@ -3122,6 +3393,25 @@ function connectSocket() {
             clearTypingUser(chatId, Number(message.sender?.id));
             renderTypingBar();
         }
+    });
+
+    socket.on("message:deleted", ({ chatId, message, lastMessage }) => {
+        const id = Number(chatId);
+        if (!id) return;
+
+        if (message?.id) {
+            upsertMessage(message);
+        }
+        updateChatLastMessage(id, lastMessage || null);
+
+        if (id === state.currentChatId) {
+            if (state.replyToMessage?.id && Number(state.replyToMessage.id) === Number(message?.id)) {
+                state.replyToMessage = message;
+                renderSelectedImage();
+            }
+            renderMessages();
+        }
+        renderChats();
     });
 
     socket.on("member:updated", async ({ chatId }) => {
@@ -3338,6 +3628,7 @@ function bindUi() {
 
     dom.composer.addEventListener("submit", sendMessage);
     dom.messages.addEventListener("click", handleVoiceNoteToggle);
+    dom.messages.addEventListener("click", handleMessageActionClick);
     for (const eventName of ["loadedmetadata", "timeupdate", "play", "pause", "ended", "waiting", "canplay"]) {
         dom.messages.addEventListener(eventName, handleVoiceNoteMediaEvent, true);
     }
@@ -3369,16 +3660,36 @@ function bindUi() {
 
     dom.emojiBtn.addEventListener("click", (event) => {
         event.stopPropagation();
+        const willOpen = dom.emojiPanel.classList.contains("hidden");
+        renderEmojiPanel();
         dom.emojiPanel.classList.toggle("hidden");
+        if (willOpen) {
+            setTimeout(() => {
+                document.getElementById("emojiSearchInput")?.focus();
+            }, 0);
+        }
     });
 
     dom.emojiPanel.addEventListener("click", (event) => {
+        const categoryButton = event.target.closest("button[data-emoji-category]");
+        if (categoryButton) {
+            state.emojiCategory = categoryButton.dataset.emojiCategory || state.emojiCategory;
+            renderEmojiPanel();
+            return;
+        }
+
         const button = event.target.closest("button[data-emoji]");
         if (!button) return;
 
-        dom.messageInput.value += button.dataset.emoji || "";
-        dom.messageInput.focus();
+        appendEmojiToComposer(button.dataset.emoji || "");
         dom.emojiPanel.classList.add("hidden");
+    });
+
+    dom.emojiPanel.addEventListener("input", (event) => {
+        if (event.target.id !== "emojiSearchInput") return;
+        state.emojiQuery = String(event.target.value || "");
+        renderEmojiPanel();
+        document.getElementById("emojiSearchInput")?.focus();
     });
 
     document.addEventListener("click", (event) => {
@@ -3441,11 +3752,24 @@ function bindUi() {
     dom.leaveCallBtn.addEventListener("click", () => stopCall(true));
     attachTyping();
 
+    const onMobileComposerFocus = () => {
+        if (!isMobileViewport()) return;
+        setChatsDrawer(false);
+        closeProfileSheet();
+        closeCallOverlay();
+        setTimeout(updateViewportMetrics, 40);
+    };
+    dom.messageInput.addEventListener("focus", onMobileComposerFocus);
+    dom.messageInput.addEventListener("blur", () => setTimeout(updateViewportMetrics, 80));
+
     window.addEventListener("resize", () => {
         if (!isMobileViewport()) {
             setChatsDrawer(false);
         }
+        updateViewportMetrics();
     });
+    window.visualViewport?.addEventListener("resize", updateViewportMetrics);
+    window.visualViewport?.addEventListener("scroll", updateViewportMetrics);
 
     document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
@@ -3464,6 +3788,11 @@ function bindUi() {
 
         if (!dom.callOverlay.classList.contains("hidden")) {
             closeCallOverlay();
+        }
+
+        if (state.replyToMessage) {
+            clearReplyTarget();
+            renderSelectedImage();
         }
     });
 
@@ -3486,9 +3815,11 @@ function bindUi() {
 
 async function init() {
     switchTab("login");
+    state.recentEmojis = loadRecentEmojis();
     renderEmojiPanel();
     bindUi();
     setChatsDrawer(false);
+    updateViewportMetrics();
     renderChats();
     renderCurrentChat();
     renderProfile();

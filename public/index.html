@@ -73,7 +73,7 @@
                         <input name="password" type="password" required minlength="6" placeholder="Введите пароль" />
                     </label>
                     <button type="submit" class="btn primary auth-submit">Войти в MIRX</button>
-                    <p class="hint">Сессия хранится отдельно в каждой вкладке браузера.</p>
+                    <p class="hint">После входа аккаунт сохраняется, а уведомления можно включить прямо в браузере.</p>
                 </form>
 
                 <form id="registerForm" class="auth-form">
@@ -147,7 +147,7 @@
                     <form id="composer" class="composer">
                         <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
                         <div id="emojiPanel" class="emoji-panel hidden"></div>
-                        <input id="messageInput" type="text" maxlength="4000" placeholder="Введите сообщение..." />
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="Введите сообщение..." inputmode="text" enterkeyhint="send" autocomplete="off" />
                         <div class="composer-tools">
                             <label class="btn ghost file-btn" aria-label="Прикрепить фото">
                                 📷

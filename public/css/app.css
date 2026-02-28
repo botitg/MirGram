@@ -14,6 +14,8 @@
     --danger: #ff6f72;
     --radius: 16px;
     --shadow: 0 18px 44px rgba(1, 7, 14, 0.55);
+    --app-height: 100dvh;
+    --keyboard-offset: 0px;
 }
 
 * {
@@ -29,6 +31,7 @@ body {
     margin: 0;
     font-family: "Manrope", sans-serif;
     color: var(--text);
+    overscroll-behavior: none;
     background:
         radial-gradient(1200px 520px at -8% -20%, rgba(66, 181, 255, 0.3), transparent 64%),
         radial-gradient(820px 560px at 100% 0, rgba(242, 202, 120, 0.16), transparent 62%),
@@ -60,7 +63,7 @@ body::after {
 }
 
 .screen {
-    min-height: 100vh;
+    min-height: var(--app-height, 100vh);
 }
 
 .hidden {
@@ -427,7 +430,8 @@ code {
     inset: 0;
     display: grid;
     grid-template-rows: 78px 1fr;
-    min-height: 100dvh;
+    height: var(--app-height, 100dvh);
+    min-height: var(--app-height, 100dvh);
     overflow: hidden;
 }
 
@@ -1052,6 +1056,11 @@ code {
     background: rgba(242, 202, 120, 0.15);
 }
 
+.msg-deleted-copy {
+    color: #b5c4d7;
+    font-style: italic;
+}
+
 .msg-head {
     margin-bottom: 4px;
     display: flex;
@@ -1075,6 +1084,57 @@ code {
     border-radius: 18px;
     border: 1px solid rgba(160, 190, 220, 0.16);
     background: rgba(2, 10, 19, 0.3);
+}
+
+.msg-reply-card {
+    display: grid;
+    gap: 3px;
+    margin: 0 0 8px;
+    padding: 9px 10px;
+    border-left: 3px solid rgba(66, 181, 255, 0.8);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.msg-reply-card strong {
+    font-size: 12px;
+    color: #dff0ff;
+}
+
+.msg-reply-card span {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.msg-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.msg-action-btn {
+    border: 1px solid rgba(160, 190, 220, 0.2);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #dbe8f7;
+    font: inherit;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+.msg-action-btn.danger {
+    color: #ffd7d7;
+    border-color: rgba(255, 111, 114, 0.35);
+    background: rgba(255, 111, 114, 0.08);
+}
+
+.msg-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .msg-voice-card {
@@ -1270,10 +1330,7 @@ code {
     left: 12px;
     bottom: 74px;
     width: min(320px, calc(100vw - 40px));
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 4px;
-    padding: 8px;
+    padding: 10px;
     z-index: 20;
     border-radius: 12px;
     border: 1px solid var(--line);
@@ -1281,12 +1338,65 @@ code {
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
 }
 
-.emoji-panel button {
+.emoji-panel-shell {
+    display: grid;
+    gap: 10px;
+}
+
+.emoji-panel-head {
+    display: grid;
+}
+
+.emoji-search-input {
+    height: 42px;
+    padding-inline: 13px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.emoji-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.emoji-tab,
+.emoji-choice {
     border: 0;
-    border-radius: 8px;
-    padding: 5px;
+    border-radius: 10px;
     cursor: pointer;
+    color: var(--text);
     background: rgba(255, 255, 255, 0.08);
+}
+
+.emoji-tab {
+    height: 38px;
+    font-size: 18px;
+}
+
+.emoji-tab.active {
+    background: linear-gradient(135deg, rgba(66, 181, 255, 0.28), rgba(242, 202, 120, 0.22));
+    box-shadow: inset 0 0 0 1px rgba(66, 181, 255, 0.3);
+}
+
+.emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.emoji-choice {
+    padding: 8px 4px;
+    font-size: 22px;
+}
+
+.emoji-empty {
+    grid-column: 1 / -1;
+    padding: 22px 10px;
+    text-align: center;
+    color: var(--muted);
 }
 
 .selected-image {
@@ -1295,6 +1405,8 @@ code {
     color: var(--muted);
     font-size: 13px;
     background: rgba(255, 255, 255, 0.02);
+    display: grid;
+    gap: 10px;
 }
 
 .composer-status-card {
@@ -1315,6 +1427,13 @@ code {
     background:
         radial-gradient(160px 90px at 0 0, rgba(255, 92, 92, 0.18), transparent 72%),
         rgba(20, 10, 12, 0.78);
+}
+
+.composer-status-card.reply-card {
+    border-color: rgba(66, 181, 255, 0.24);
+    background:
+        radial-gradient(180px 100px at 0 0, rgba(66, 181, 255, 0.14), transparent 72%),
+        rgba(8, 17, 28, 0.76);
 }
 
 .composer-status-card.recording-card .composer-status-icon {
@@ -2106,6 +2225,9 @@ body.drawer-open .mobile-drawer-backdrop {
         right: 12px;
         left: 12px;
         width: auto;
+    }
+
+    .emoji-grid {
         grid-template-columns: repeat(6, 1fr);
     }
 
@@ -2238,6 +2360,9 @@ body.drawer-open .mobile-drawer-backdrop {
 
     .emoji-panel {
         bottom: 126px;
+    }
+
+    .emoji-grid {
         grid-template-columns: repeat(5, 1fr);
     }
 
@@ -2313,4 +2438,16 @@ body.drawer-open .mobile-drawer-backdrop {
     .call-head-actions .btn {
         flex: 1 1 0;
     }
+}
+
+body.keyboard-open .topbar {
+    padding-bottom: 8px;
+}
+
+body.keyboard-open .layout {
+    padding-bottom: 6px;
+}
+
+body.keyboard-open .messages {
+    padding-bottom: 8px;
 }
