@@ -1,4 +1,4 @@
-const TOKEN_KEY = "mirx.token";
+﻿const TOKEN_KEY = "mirx.token";
 const runtimeConfig = window.MIRNA_CONFIG || {};
 
 function normalizeBaseUrl(value) {
@@ -67,7 +67,9 @@ const rtcConfig = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-const EMOJIS = ["😀", "😎", "😍", "😭", "😡", "🤝", "🔥", "❤️", "🎉", "✅", "📞", "🎤", "📷", "🚀", "⚡", "👍", "👎", "🙏", "😅", "🤖", "🌍", "💬", "🔒", "🛡️"];
+const MOBILE_BREAKPOINT = 840;
+
+const EMOJIS = ["рџЂ", "рџЋ", "рџЌ", "рџ­", "рџЎ", "рџ¤ќ", "рџ”Ґ", "вќ¤пёЏ", "рџЋ‰", "вњ…", "рџ“ћ", "рџЋ¤", "рџ“·", "рџљЂ", "вљЎ", "рџ‘Ќ", "рџ‘Ћ", "рџ™Џ", "рџ…", "рџ¤–", "рџЊЌ", "рџ’¬", "рџ”’", "рџ›ЎпёЏ"];
 
 const dom = {
     authScreen: document.getElementById("authScreen"),
@@ -95,6 +97,8 @@ const dom = {
     newGroupBtn: document.getElementById("newGroupBtn"),
     logoutBtn: document.getElementById("logoutBtn"),
     mobileChatsToggle: document.getElementById("mobileChatsToggle"),
+    mobileChatsClose: document.getElementById("mobileChatsClose"),
+    mobileDrawerBackdrop: document.getElementById("mobileDrawerBackdrop"),
     chatsPanel: document.getElementById("chatsPanel"),
     toasts: document.getElementById("toasts"),
     modal: document.getElementById("modal"),
@@ -117,6 +121,24 @@ const modalState = {
     rejecter: null,
     fields: [],
 };
+
+function isMobileViewport() {
+    return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+function setChatsDrawer(open) {
+    const shouldOpen = Boolean(open && isMobileViewport() && state.me);
+
+    dom.chatsPanel.classList.toggle("open", shouldOpen);
+    dom.mobileChatsToggle.classList.toggle("active", shouldOpen);
+    dom.mobileChatsToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+    dom.mobileDrawerBackdrop.classList.toggle("hidden", !shouldOpen);
+    document.body.classList.toggle("drawer-open", shouldOpen);
+}
+
+function toggleChatsDrawer() {
+    setChatsDrawer(!dom.chatsPanel.classList.contains("open"));
+}
 
 function toast(message) {
     const el = document.createElement("div");
@@ -180,9 +202,9 @@ async function api(path, options = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         if (res.status === 404 && !API_BASE_URL && !window.location.hostname.includes("localhost")) {
-            throw new Error("Backend не найден. Проверь MIRNA_API_BASE_URL в Netlify.");
+            throw new Error("Backend РЅРµ РЅР°Р№РґРµРЅ. РџСЂРѕРІРµСЂСЊ MIRNA_API_BASE_URL РІ Netlify.");
         }
-        throw new Error(data.error || `Ошибка ${res.status}`);
+        throw new Error(data.error || `РћС€РёР±РєР° ${res.status}`);
     }
     return data;
 }
@@ -190,6 +212,9 @@ async function api(path, options = {}) {
 function setAuthMode(isAuth) {
     dom.authScreen.classList.toggle("hidden", isAuth);
     dom.appScreen.classList.toggle("hidden", !isAuth);
+    if (!isAuth) {
+        setChatsDrawer(false);
+    }
 }
 
 function switchTab(tab) {
@@ -210,8 +235,8 @@ function closeModal(cancelled = true) {
 }
 
 function openModal({ title, submitLabel, fields }) {
-    dom.modalTitle.textContent = title || "Форма";
-    dom.modalSubmit.textContent = submitLabel || "Сохранить";
+    dom.modalTitle.textContent = title || "Р¤РѕСЂРјР°";
+    dom.modalSubmit.textContent = submitLabel || "РЎРѕС…СЂР°РЅРёС‚СЊ";
     modalState.fields = fields || [];
 
     dom.modalFields.innerHTML = modalState.fields.map((field) => {
@@ -285,7 +310,7 @@ function getCurrentChat() {
 }
 
 function getChatDisplayName(chat) {
-    return chat?.name || "Чат";
+    return chat?.name || "Р§Р°С‚";
 }
 
 function isOnline(userId) {
@@ -305,11 +330,11 @@ function renderProfile() {
             <div>
                 <strong>@${escapeHtml(state.me.username)}</strong>
                 <div class="hint">ID: ${state.me.id}</div>
-                <div class="hint">${isOnline(state.me.id) ? "Онлайн" : "Оффлайн"}</div>
+                <div class="hint">${isOnline(state.me.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</div>
             </div>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-            <button id="editProfileBtn" class="btn ghost" type="button">Профиль</button>
+            <button id="editProfileBtn" class="btn ghost" type="button">РџСЂРѕС„РёР»СЊ</button>
         </div>
     `;
 
@@ -324,18 +349,18 @@ function renderChats() {
     state.filteredChats = chats;
 
     if (!chats.length) {
-        dom.chatList.innerHTML = `<p class="hint">Чаты не найдены</p>`;
+        dom.chatList.innerHTML = `<p class="hint">Р§Р°С‚С‹ РЅРµ РЅР°Р№РґРµРЅС‹</p>`;
         return;
     }
 
     dom.chatList.innerHTML = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
         const lastText = chat.lastMessage
-            ? (chat.lastMessage.type === "image" ? "📷 Фото" : (chat.lastMessage.text || "Системное сообщение"))
-            : "Нет сообщений";
+            ? (chat.lastMessage.type === "image" ? "рџ“· Р¤РѕС‚Рѕ" : (chat.lastMessage.text || "РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ"))
+            : "РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№";
         const avatar = chat.avatarUrl
             ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
-            : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
+            : `<span>${chat.type === "group" ? "рџ‘Ґ" : "рџ’¬"}</span>`;
 
         return `
             <article class="chat-item ${active}" data-chat-id="${chat.id}">
@@ -360,18 +385,22 @@ function renderChatHeader() {
     const inCurrentCall = callState.active && callState.chatId === chat.id;
     const canJoinCall = Boolean(state.myPermissions?.canStartCalls) || inCurrentCall;
     const callHint = callStatus?.active
-        ? `Активен ${callStatus.mode === "video" ? "видеочат" : "голосовой чат"} (${callStatus.participantsCount})`
+        ? `РђРєС‚РёРІРµРЅ ${callStatus.mode === "video" ? "РІРёРґРµРѕС‡Р°С‚" : "РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"} (${callStatus.participantsCount})`
         : "";
 
     dom.chatHeader.innerHTML = `
         <div class="chat-title">
             <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
-            <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
+            <small>${chat.type === "group" ? "Р“СЂСѓРїРїР°" : "Р›РёС‡РЅС‹Р№ С‡Р°С‚"} В· ${state.members.length} СѓС‡Р°СЃС‚РЅРёРєРѕРІ ${callHint ? `В· ${escapeHtml(callHint)}` : ""}</small>
         </div>
         <div class="header-actions">
-            <button id="voiceCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>🎤 Голос</button>
-            <button id="videoCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>📹 Видео</button>
-            ${callStatus?.active ? `<button id="joinCallBtn" class="btn ghost" type="button" ${!canJoinCall ? "disabled" : ""}>${inCurrentCall ? "Открыть" : "Подключиться"}</button>` : ""}
+            <button id="voiceCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>
+                <span>🎤</span><span>Голос</span>
+            </button>
+            <button id="videoCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>
+                <span>📹</span><span>Видео</span>
+            </button>
+            ${callStatus?.active ? `<button id="joinCallBtn" class="btn ghost" type="button" ${!canJoinCall ? "disabled" : ""}><span>📡</span><span>${inCurrentCall ? "Открыть" : "Подключиться"}</span></button>` : ""}
         </div>
     `;
 
@@ -402,14 +431,14 @@ function renderTypingBar() {
 
     const names = Array.from(entry.users.values());
     const text = names.length === 1
-        ? `${names[0]} печатает...`
-        : `${names.slice(0, 2).join(", ")} и ещё печатают...`;
+        ? `${names[0]} РїРµС‡Р°С‚Р°РµС‚...`
+        : `${names.slice(0, 2).join(", ")} Рё РµС‰С‘ РїРµС‡Р°С‚Р°СЋС‚...`;
     dom.typingBar.textContent = text;
 }
 
 function renderMessages() {
     if (!state.messages.length) {
-        dom.messages.innerHTML = `<p class="hint">Пока нет сообщений</p>`;
+        dom.messages.innerHTML = `<p class="hint">РџРѕРєР° РЅРµС‚ СЃРѕРѕР±С‰РµРЅРёР№</p>`;
         return;
     }
 
@@ -418,7 +447,7 @@ function renderMessages() {
         const cls = ["msg", isSelf ? "self" : "", message.type === "system" ? "system" : ""].join(" ").trim();
         const header = message.sender
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
-            : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
+            : `<div class="msg-head"><span>РЎРёСЃС‚РµРјР°</span><span>${formatTime(message.createdAt)}</span></div>`;
 
         const image = message.imageUrl ? `<img class="msg-image" src="${escapeHtml(assetUrl(message.imageUrl))}" alt="photo" />` : "";
         const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
@@ -438,33 +467,33 @@ function renderMembers() {
 
     const membersHtml = state.members.map((member) => {
         const roleBadge = member.role === "owner"
-            ? "<span class='badge'>Создатель</span>"
+            ? "<span class='badge'>РЎРѕР·РґР°С‚РµР»СЊ</span>"
             : member.role === "admin"
-                ? "<span class='badge'>Админ</span>"
+                ? "<span class='badge'>РђРґРјРёРЅ</span>"
                 : "";
         return `
             <div class="member-item">
                 <div class="member-avatar"><img src="${escapeHtml(assetUrl(member.displayAvatar || member.avatarUrl))}" alt="avatar" /></div>
                 <div>
                     <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
-                    <div class="hint">@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Оффлайн"}</div>
+                    <div class="hint">@${escapeHtml(member.username)} В· ${isOnline(member.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</div>
                 </div>
             </div>
         `;
     }).join("");
 
     dom.membersBox.innerHTML = `
-        <h3 style="margin:0 0 10px">Участники</h3>
-        <div class="members-list">${membersHtml || "<p class='hint'>Нет участников</p>"}</div>
+        <h3 style="margin:0 0 10px">РЈС‡Р°СЃС‚РЅРёРєРё</h3>
+        <div class="members-list">${membersHtml || "<p class='hint'>РќРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ</p>"}</div>
     `;
 
     const canManage = state.myRole === "owner" || state.myRole === "admin";
 
     dom.chatActions.innerHTML = `
         <div style="display:grid;gap:8px">
-            <button id="myChatProfileBtn" type="button" class="btn ghost">Ник/ава в чате</button>
-            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Добавить участника</button>` : ""}
-            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">Права участника</button>` : ""}
+            <button id="myChatProfileBtn" type="button" class="btn ghost">РќРёРє/Р°РІР° РІ С‡Р°С‚Рµ</button>
+            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
+            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">РџСЂР°РІР° СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
         </div>
     `;
 
@@ -562,9 +591,7 @@ async function openChat(chatId) {
     renderChats();
     renderCurrentChat();
 
-    if (window.innerWidth <= 840) {
-        dom.chatsPanel.classList.remove("open");
-    }
+    setChatsDrawer(false);
 }
 
 async function login(event) {
@@ -586,7 +613,7 @@ async function login(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        toast(`Вход выполнен: @${state.me.username}`);
+        toast(`Р’С…РѕРґ РІС‹РїРѕР»РЅРµРЅ: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
         toast(error.message);
@@ -612,7 +639,7 @@ async function register(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        toast(`Аккаунт создан: @${state.me.username}`);
+        toast(`РђРєРєР°СѓРЅС‚ СЃРѕР·РґР°РЅ: @${state.me.username}`);
         dom.registerForm.reset();
     } catch (error) {
         toast(error.message);
@@ -643,6 +670,7 @@ async function logout() {
     renderCurrentChat();
     renderProfile();
     renderSelectedImage();
+    setChatsDrawer(false);
 }
 
 async function openNewPrivateChat() {
@@ -650,18 +678,18 @@ async function openNewPrivateChat() {
         const usersData = await api("/api/users/search?limit=100");
         const users = usersData.users || [];
         if (!users.length) {
-            toast("Нет доступных пользователей.");
+            toast("РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.");
             return;
         }
 
         const payload = await openModal({
-            title: "Новый личный чат",
-            submitLabel: "Создать",
+            title: "РќРѕРІС‹Р№ Р»РёС‡РЅС‹Р№ С‡Р°С‚",
+            submitLabel: "РЎРѕР·РґР°С‚СЊ",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "Пользователь",
+                    label: "РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
                     required: true,
                     options: users.map((user) => ({
                         value: user.id,
@@ -689,20 +717,20 @@ async function openNewGroupChat() {
         const users = usersData.users || [];
 
         const payload = await openModal({
-            title: "Создать группу",
-            submitLabel: "Создать",
+            title: "РЎРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ",
+            submitLabel: "РЎРѕР·РґР°С‚СЊ",
             fields: [
                 {
                     name: "name",
-                    label: "Название группы",
+                    label: "РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹",
                     required: true,
-                    placeholder: "Например: RP Команда",
+                    placeholder: "РќР°РїСЂРёРјРµСЂ: RP РљРѕРјР°РЅРґР°",
                 },
                 {
                     name: "memberIds",
                     type: "select",
                     multiple: true,
-                    label: "Участники",
+                    label: "РЈС‡Р°СЃС‚РЅРёРєРё",
                     options: users.map((user) => ({
                         value: user.id,
                         label: `@${user.username}`,
@@ -731,12 +759,12 @@ async function openProfileEditor() {
 
     try {
         const payload = await openModal({
-            title: "Профиль",
-            submitLabel: "Сохранить",
+            title: "РџСЂРѕС„РёР»СЊ",
+            submitLabel: "РЎРѕС…СЂР°РЅРёС‚СЊ",
             fields: [
-                { name: "username", label: "Ник", required: true, value: state.me.username },
-                { name: "avatarUrl", label: "Аватар (URL)", value: state.me.avatarUrl || "" },
-                { name: "password", label: "Новый пароль (опционально)", type: "password" },
+                { name: "username", label: "РќРёРє", required: true, value: state.me.username },
+                { name: "avatarUrl", label: "РђРІР°С‚Р°СЂ (URL)", value: state.me.avatarUrl || "" },
+                { name: "password", label: "РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)", type: "password" },
             ],
         });
 
@@ -755,7 +783,7 @@ async function openProfileEditor() {
         if (state.currentChatId) {
             await openChat(state.currentChatId);
         }
-        toast("Профиль обновлён.");
+        toast("РџСЂРѕС„РёР»СЊ РѕР±РЅРѕРІР»С‘РЅ.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -766,17 +794,17 @@ async function openMyChatProfile() {
 
     const meMember = state.members.find((member) => member.id === state.me.id);
     if (!meMember) {
-        toast("Вы не найдены в списке участников.");
+        toast("Р’С‹ РЅРµ РЅР°Р№РґРµРЅС‹ РІ СЃРїРёСЃРєРµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ.");
         return;
     }
 
     try {
         const payload = await openModal({
-            title: "Ник и ава в этом чате",
-            submitLabel: "Применить",
+            title: "РќРёРє Рё Р°РІР° РІ СЌС‚РѕРј С‡Р°С‚Рµ",
+            submitLabel: "РџСЂРёРјРµРЅРёС‚СЊ",
             fields: [
-                { name: "groupNick", label: "Ник в чате", value: meMember.groupNick || "" },
-                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: meMember.groupAvatarUrl || "" },
+                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: meMember.groupNick || "" },
+                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: meMember.groupAvatarUrl || "" },
             ],
         });
 
@@ -790,7 +818,7 @@ async function openMyChatProfile() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("Профиль в чате обновлён.");
+        toast("РџСЂРѕС„РёР»СЊ РІ С‡Р°С‚Рµ РѕР±РЅРѕРІР»С‘РЅ.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -824,18 +852,18 @@ async function openAddMemberModal() {
         candidates = Array.from(uniqueById.values());
 
         if (!candidates.length) {
-            toast("Нет зарегистрированных пользователей для добавления.");
+            toast("РќРµС‚ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ РґР»СЏ РґРѕР±Р°РІР»РµРЅРёСЏ.");
             return;
         }
 
         const payload = await openModal({
-            title: "Добавить участника",
-            submitLabel: "Добавить",
+            title: "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°",
+            submitLabel: "Р”РѕР±Р°РІРёС‚СЊ",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "Зарегистрированный пользователь",
+                    label: "Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹Р№ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
                     required: true,
                     options: candidates.map((user) => ({ value: user.id, label: `@${user.username} | ID ${user.id}` })),
                 },
@@ -849,7 +877,7 @@ async function openAddMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("Участник добавлен.");
+        toast("РЈС‡Р°СЃС‚РЅРёРє РґРѕР±Р°РІР»РµРЅ.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -859,19 +887,19 @@ async function openManageMemberModal() {
 
     const candidates = state.members.filter((member) => member.id !== state.me.id);
     if (!candidates.length) {
-        toast("Нет участников для настройки.");
+        toast("РќРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РґР»СЏ РЅР°СЃС‚СЂРѕР№РєРё.");
         return;
     }
 
     try {
         const pick = await openModal({
-            title: "Выберите участника",
-            submitLabel: "Далее",
+            title: "Р’С‹Р±РµСЂРёС‚Рµ СѓС‡Р°СЃС‚РЅРёРєР°",
+            submitLabel: "Р”Р°Р»РµРµ",
             fields: [
                 {
                     name: "memberId",
                     type: "select",
-                    label: "Участник",
+                    label: "РЈС‡Р°СЃС‚РЅРёРє",
                     required: true,
                     options: candidates.map((member) => ({
                         value: member.id,
@@ -885,44 +913,44 @@ async function openManageMemberModal() {
         if (!target) return;
 
         const payload = await openModal({
-            title: `Права: @${target.username}`,
-            submitLabel: "Сохранить",
+            title: `РџСЂР°РІР°: @${target.username}`,
+            submitLabel: "РЎРѕС…СЂР°РЅРёС‚СЊ",
             fields: [
                 {
                     name: "role",
                     type: "select",
-                    label: "Роль",
+                    label: "Р РѕР»СЊ",
                     value: target.role,
                     options: state.myRole === "owner"
                         ? [
-                            { value: "member", label: "Участник" },
-                            { value: "admin", label: "Админ" },
-                            { value: "owner", label: "Создатель" },
+                            { value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" },
+                            { value: "admin", label: "РђРґРјРёРЅ" },
+                            { value: "owner", label: "РЎРѕР·РґР°С‚РµР»СЊ" },
                         ]
-                        : [{ value: "member", label: "Участник" }],
+                        : [{ value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" }],
                 },
-                { name: "groupNick", label: "Ник в чате", value: target.groupNick || "" },
-                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: target.groupAvatarUrl || "" },
+                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: target.groupNick || "" },
+                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: target.groupAvatarUrl || "" },
                 {
                     name: "canSend",
                     type: "select",
-                    label: "Может писать",
+                    label: "РњРѕР¶РµС‚ РїРёСЃР°С‚СЊ",
                     value: target.permissions.canSend ? "true" : "false",
-                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
+                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
                 },
                 {
                     name: "canSendMedia",
                     type: "select",
-                    label: "Может отправлять фото",
+                    label: "РњРѕР¶РµС‚ РѕС‚РїСЂР°РІР»СЏС‚СЊ С„РѕС‚Рѕ",
                     value: target.permissions.canSendMedia ? "true" : "false",
-                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
+                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
                 },
                 {
                     name: "canStartCalls",
                     type: "select",
-                    label: "Может звонить",
+                    label: "РњРѕР¶РµС‚ Р·РІРѕРЅРёС‚СЊ",
                     value: target.permissions.canStartCalls ? "true" : "false",
-                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
+                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
                 },
             ],
         });
@@ -941,7 +969,7 @@ async function openManageMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("Права обновлены.");
+        toast("РџСЂР°РІР° РѕР±РЅРѕРІР»РµРЅС‹.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -951,7 +979,7 @@ async function sendMessage(event) {
     event.preventDefault();
     if (!state.currentChatId) return;
     if (!state.myPermissions?.canSend) {
-        toast("У вас нет прав на отправку сообщений в этом чате.");
+        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№ РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
         return;
     }
 
@@ -960,7 +988,7 @@ async function sendMessage(event) {
 
     if (!text && !image) return;
     if (image && !state.myPermissions?.canSendMedia) {
-        toast("У вас нет прав на отправку фото в этом чате.");
+        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ С„РѕС‚Рѕ РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
         return;
     }
 
@@ -1002,8 +1030,8 @@ function renderSelectedImage() {
 
     dom.selectedImageBar.classList.remove("hidden");
     dom.selectedImageBar.innerHTML = `
-        📷 Выбрано фото: ${escapeHtml(state.selectedImage.name)}
-        <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">Удалить</button>
+        рџ“· Р’С‹Р±СЂР°РЅРѕ С„РѕС‚Рѕ: ${escapeHtml(state.selectedImage.name)}
+        <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">РЈРґР°Р»РёС‚СЊ</button>
     `;
     document.getElementById("clearImageBtn")?.addEventListener("click", () => {
         state.selectedImage = null;
@@ -1043,10 +1071,10 @@ function applyComposerPermissions() {
     if (fileBtn) fileBtn.classList.toggle("disabled", !canMedia);
 
     dom.messageInput.placeholder = !hasChat
-        ? "Выберите чат"
+        ? "Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚"
         : canSend
-            ? "Введите сообщение..."
-            : "У вас нет прав на отправку сообщений";
+            ? "Р’РІРµРґРёС‚Рµ СЃРѕРѕР±С‰РµРЅРёРµ..."
+            : "РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№";
 
     if (!canMedia && state.selectedImage) {
         state.selectedImage = null;
@@ -1138,7 +1166,7 @@ function handleTypingEvent(payload) {
 
 function getCallChatName(chatId) {
     const chat = state.chats.find((item) => item.id === chatId);
-    return chat ? getChatDisplayName(chat) : `Чат #${chatId}`;
+    return chat ? getChatDisplayName(chat) : `Р§Р°С‚ #${chatId}`;
 }
 
 function createRemoteTile(userId) {
@@ -1166,7 +1194,7 @@ function updateRemoteTileLabel(userId) {
 
     const user = callState.participants.get(userId);
     if (!user) {
-        peer.label.textContent = `Пользователь ${userId}`;
+        peer.label.textContent = `РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ ${userId}`;
         return;
     }
 
@@ -1176,9 +1204,9 @@ function updateRemoteTileLabel(userId) {
 function refreshCallUi() {
     if (!callState.active || !callState.chatId) return;
 
-    const title = callState.mode === "video" ? "Видеочат" : "Голосовой чат";
+    const title = callState.mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚";
     dom.callTitle.textContent = `${title}: ${getCallChatName(callState.chatId)}`;
-    dom.callStatus.textContent = `Участников: ${callState.participants.size}`;
+    dom.callStatus.textContent = `РЈС‡Р°СЃС‚РЅРёРєРѕРІ: ${callState.participants.size}`;
 
     if (callState.mode === "audio") {
         dom.localVideo.classList.add("hidden");
@@ -1368,7 +1396,7 @@ async function handleCallJoined(payload) {
     try {
         await ensureLocalStream(mode);
     } catch (error) {
-        toast("Не удалось получить доступ к микрофону/камере.");
+        toast("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
         stopCall(true);
         return;
     }
@@ -1458,7 +1486,7 @@ async function handleWebRtcIce(payload) {
 
 async function startCall(mode) {
     if (!state.socket || !state.currentChatId) {
-        toast("Откройте чат и дождитесь подключения.");
+        toast("РћС‚РєСЂРѕР№С‚Рµ С‡Р°С‚ Рё РґРѕР¶РґРёС‚РµСЃСЊ РїРѕРґРєР»СЋС‡РµРЅРёСЏ.");
         return;
     }
 
@@ -1469,21 +1497,21 @@ async function startCall(mode) {
             return;
         }
 
-        toast("Сначала завершите текущий звонок.");
+        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
         return;
     }
 
     try {
         await ensureLocalStream(mode);
     } catch {
-        toast("Нужен доступ к микрофону/камере.");
+        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
         return;
     }
 
     callState.mode = mode;
     dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
-    dom.callStatus.textContent = "Подключение...";
+    dom.callTitle.textContent = `${mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"}: ${getCallChatName(state.currentChatId)}`;
+    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
     state.socket.emit("call:start", { chatId: state.currentChatId, mode });
 }
 
@@ -1497,7 +1525,7 @@ async function joinExistingCall() {
             return;
         }
 
-        toast("Сначала завершите текущий звонок.");
+        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
         return;
     }
 
@@ -1506,13 +1534,13 @@ async function joinExistingCall() {
     try {
         await ensureLocalStream(mode);
     } catch {
-        toast("Нужен доступ к микрофону/камере.");
+        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
         return;
     }
 
     dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
-    dom.callStatus.textContent = "Подключение...";
+    dom.callTitle.textContent = `${mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"}: ${getCallChatName(state.currentChatId)}`;
+    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
     state.socket.emit("call:join", { chatId: state.currentChatId });
 }
 
@@ -1580,7 +1608,7 @@ function connectSocket() {
     });
 
     socket.on("connect_error", () => {
-        toast("Проблема realtime-соединения. Идёт переподключение...");
+        toast("РџСЂРѕР±Р»РµРјР° realtime-СЃРѕРµРґРёРЅРµРЅРёСЏ. РРґС‘С‚ РїРµСЂРµРїРѕРґРєР»СЋС‡РµРЅРёРµ...");
     });
 
     socket.on("disconnect", () => {
@@ -1669,7 +1697,7 @@ function connectSocket() {
 
         state.callStatusByChat.delete(id);
         if (callState.active && callState.chatId === id) {
-            toast("Звонок завершён.");
+            toast("Р—РІРѕРЅРѕРє Р·Р°РІРµСЂС€С‘РЅ.");
             stopCall(false);
         }
 
@@ -1728,7 +1756,7 @@ function connectSocket() {
     });
 
     socket.on("call:error", ({ message }) => {
-        toast(message || "Ошибка звонка.");
+        toast(message || "РћС€РёР±РєР° Р·РІРѕРЅРєР°.");
     });
 
     socket.on("webrtc:offer", async (payload) => {
@@ -1760,12 +1788,22 @@ function bindUi() {
         renderChats();
     });
 
+    dom.chatSearch.addEventListener("focus", () => {
+        if (state.me && isMobileViewport()) {
+            setChatsDrawer(true);
+        }
+    });
+
     dom.chatList.addEventListener("click", async (event) => {
         const item = event.target.closest(".chat-item");
         if (!item) return;
 
         const chatId = Number(item.dataset.chatId);
         if (!chatId) return;
+
+        if (isMobileViewport()) {
+            setChatsDrawer(false);
+        }
 
         await openChat(chatId);
     });
@@ -1777,7 +1815,7 @@ function bindUi() {
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
-            toast("Выберите изображение.");
+            toast("Р’С‹Р±РµСЂРёС‚Рµ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.");
             dom.imageInput.value = "";
             return;
         }
@@ -1806,16 +1844,9 @@ function bindUi() {
         dom.emojiPanel.classList.add("hidden");
     });
 
-    dom.mobileChatsToggle.addEventListener("click", () => {
-        dom.chatsPanel.classList.toggle("open");
-    });
-
-    document.addEventListener("click", (event) => {
-        if (window.innerWidth > 840) return;
-        if (!dom.chatsPanel.classList.contains("open")) return;
-        if (dom.chatsPanel.contains(event.target) || dom.mobileChatsToggle.contains(event.target)) return;
-        dom.chatsPanel.classList.remove("open");
-    });
+    dom.mobileChatsToggle.addEventListener("click", toggleChatsDrawer);
+    dom.mobileChatsClose?.addEventListener("click", () => setChatsDrawer(false));
+    dom.mobileDrawerBackdrop?.addEventListener("click", () => setChatsDrawer(false));
 
     dom.modalClose.addEventListener("click", () => closeModal(true));
     dom.modalCancel.addEventListener("click", () => closeModal(true));
@@ -1830,8 +1861,20 @@ function bindUi() {
     attachTyping();
 
     window.addEventListener("resize", () => {
-        if (window.innerWidth > 840) {
-            dom.chatsPanel.classList.remove("open");
+        if (!isMobileViewport()) {
+            setChatsDrawer(false);
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+
+        if (dom.chatsPanel.classList.contains("open")) {
+            setChatsDrawer(false);
+        }
+
+        if (!dom.emojiPanel.classList.contains("hidden")) {
+            dom.emojiPanel.classList.add("hidden");
         }
     });
 
@@ -1851,13 +1894,14 @@ async function init() {
     switchTab("login");
     renderEmojiPanel();
     bindUi();
+    setChatsDrawer(false);
     renderChats();
     renderCurrentChat();
     renderProfile();
     renderSelectedImage();
 
     if (window.location.hostname.endsWith("netlify.app") && !API_BASE_URL) {
-        toast("Не настроен MIRNA_API_BASE_URL: фронт не видит backend.");
+        toast("РќРµ РЅР°СЃС‚СЂРѕРµРЅ MIRNA_API_BASE_URL: С„СЂРѕРЅС‚ РЅРµ РІРёРґРёС‚ backend.");
     }
 
     await loadSession();
@@ -1870,8 +1914,9 @@ async function init() {
     try {
         await loadChats();
     } catch (error) {
-        toast(error.message || "Не удалось загрузить чаты.");
+        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С‡Р°С‚С‹.");
     }
 }
 
 init();
+
