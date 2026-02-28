@@ -1,16 +1,15 @@
 services:
   - type: web
-    name: mirnachat-backend
+    name: mirx
     env: node
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: JWT_SECRET
         generateValue: true
       - key: APP_BASE_URL
-        sync: false
-      - key: CORS_ORIGINS
         sync: false
       - key: AUTO_JOIN_DEFAULT_CHATS
         value: "false"

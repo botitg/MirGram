@@ -93,8 +93,6 @@ const dom = {
     profileBox: document.getElementById("profileBox"),
     chatActions: document.getElementById("chatActions"),
     membersBox: document.getElementById("membersBox"),
-    newPrivateBtn: document.getElementById("newPrivateBtn"),
-    newGroupBtn: document.getElementById("newGroupBtn"),
     logoutBtn: document.getElementById("logoutBtn"),
     mobileChatsToggle: document.getElementById("mobileChatsToggle"),
     mobileChatsClose: document.getElementById("mobileChatsClose"),
@@ -202,7 +200,7 @@ async function api(path, options = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         if (res.status === 404 && !API_BASE_URL && !window.location.hostname.includes("localhost")) {
-            throw new Error("Backend РЅРµ РЅР°Р№РґРµРЅ. РџСЂРѕРІРµСЂСЊ MIRNA_API_BASE_URL РІ Netlify.");
+            throw new Error("Backend не найден на текущем домене. Проверь деплой single-host приложения.");
         }
         throw new Error(data.error || `РћС€РёР±РєР° ${res.status}`);
     }
@@ -348,12 +346,34 @@ function renderChats() {
 
     state.filteredChats = chats;
 
+    const actionItems = `
+        <article class="chat-item chat-item-action" data-create="private">
+            <div class="chat-avatar chat-avatar-action"><span>+</span></div>
+            <div>
+                <h4>Новый личный чат</h4>
+                <p>Выбрать пользователя и открыть ЛС</p>
+            </div>
+        </article>
+        <article class="chat-item chat-item-action" data-create="group">
+            <div class="chat-avatar chat-avatar-action"><span>◎</span></div>
+            <div>
+                <h4>Новая группа</h4>
+                <p>Создать общий чат и пригласить участников</p>
+            </div>
+        </article>
+    `;
+
     if (!chats.length) {
-        dom.chatList.innerHTML = `<p class="hint">Р§Р°С‚С‹ РЅРµ РЅР°Р№РґРµРЅС‹</p>`;
+        dom.chatList.innerHTML = `
+            ${actionItems}
+            <div class="chat-list-empty">
+                <p class="hint">Чатов пока нет. Создайте личный чат или группу.</p>
+            </div>
+        `;
         return;
     }
 
-    dom.chatList.innerHTML = chats.map((chat) => {
+    const chatItems = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
         const lastText = chat.lastMessage
             ? (chat.lastMessage.type === "image" ? "рџ“· Р¤РѕС‚Рѕ" : (chat.lastMessage.text || "РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ"))
@@ -372,6 +392,12 @@ function renderChats() {
             </article>
         `;
     }).join("");
+
+    dom.chatList.innerHTML = `
+        ${actionItems}
+        <div class="chat-list-divider">Ваши чаты</div>
+        ${chatItems}
+    `;
 }
 
 function renderChatHeader() {
@@ -1780,8 +1806,6 @@ function bindUi() {
     dom.loginForm.addEventListener("submit", login);
     dom.registerForm.addEventListener("submit", register);
     dom.logoutBtn.addEventListener("click", logout);
-    dom.newPrivateBtn.addEventListener("click", openNewPrivateChat);
-    dom.newGroupBtn.addEventListener("click", openNewGroupChat);
 
     dom.chatSearch.addEventListener("input", () => {
         state.searchQuery = dom.chatSearch.value.trim();
@@ -1795,6 +1819,23 @@ function bindUi() {
     });
 
     dom.chatList.addEventListener("click", async (event) => {
+        const createItem = event.target.closest("[data-create]");
+        if (createItem) {
+            if (isMobileViewport()) {
+                setChatsDrawer(false);
+            }
+
+            if (createItem.dataset.create === "private") {
+                await openNewPrivateChat();
+                return;
+            }
+
+            if (createItem.dataset.create === "group") {
+                await openNewGroupChat();
+                return;
+            }
+        }
+
         const item = event.target.closest(".chat-item");
         if (!item) return;
 
@@ -1900,8 +1941,8 @@ async function init() {
     renderProfile();
     renderSelectedImage();
 
-    if (window.location.hostname.endsWith("netlify.app") && !API_BASE_URL) {
-        toast("РќРµ РЅР°СЃС‚СЂРѕРµРЅ MIRNA_API_BASE_URL: С„СЂРѕРЅС‚ РЅРµ РІРёРґРёС‚ backend.");
+    if (!window.location.hostname.includes("localhost") && !API_BASE_URL) {
+        toast("Запущен single-host режим: frontend и backend должны быть доступны на одном домене.");
     }
 
     await loadSession();

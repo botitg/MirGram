@@ -480,6 +480,46 @@ code {
     background: rgba(242, 202, 120, 0.14);
 }
 
+.chat-item-action {
+    border-color: rgba(66, 181, 255, 0.18);
+    background:
+        radial-gradient(160px 70px at 0 0, rgba(66, 181, 255, 0.16), transparent 72%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+}
+
+.chat-item-action:hover {
+    border-color: rgba(66, 181, 255, 0.5);
+    background:
+        radial-gradient(180px 70px at 0 0, rgba(66, 181, 255, 0.24), transparent 72%),
+        rgba(66, 181, 255, 0.12);
+}
+
+.chat-avatar-action {
+    border: 1px solid rgba(66, 181, 255, 0.34);
+    background: linear-gradient(180deg, rgba(66, 181, 255, 0.28), rgba(66, 181, 255, 0.14));
+    color: #dff3ff;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.chat-list-divider {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 2px 2px 0;
+    padding: 10px 12px 6px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, rgba(10, 24, 40, 0.96), rgba(10, 24, 40, 0.7));
+}
+
+.chat-list-empty {
+    padding: 12px 10px 6px;
+}
+
 .chat-avatar,
 .member-avatar {
     width: 46px;
@@ -893,11 +933,6 @@ body.drawer-open .mobile-drawer-backdrop {
 
     .topbar-actions {
         grid-area: actions;
-    }
-
-    #newGroupBtn,
-    #newPrivateBtn {
-        display: none;
     }
 
     .mobile-only {

@@ -1,97 +1,128 @@
 # MIRX
 
-Real-time messenger with:
-- Node.js backend (Express + Socket.IO + SQLite)
-- Static frontend (HTML/CSS/JS)
-- WebRTC voice/video calls
+Единый fullstack-мессенджер на `Node.js + Express + Socket.IO + SQLite`.
 
-## Local run
+Frontend и backend запускаются вместе одной командой:
 
 ```bash
 npm install
 npm start
 ```
 
-`npm start` автоматически делает `build:frontend` и затем запускает backend (Express + Socket.IO), который раздаёт frontend из `public/`.
+`npm start` делает две вещи:
+- собирает `public/config.js`
+- запускает `server.js`, который раздаёт frontend, API и realtime-соединение с одного домена
 
-Open `http://localhost:3000`.
+Локально приложение открывается на `http://localhost:3000`.
 
-## Environment variables (ideal setup)
+## Как устроен деплой
 
-This repo now has ready templates:
+Проект уже подготовлен под один хостинг:
+- frontend раздаётся Express из `public/`
+- API работает на `/api/*`
+- Socket.IO работает на том же домене
+- отдельный frontend-хостинг не нужен
 
-- `.env.example` - local backend env
-- `.env.render.example` - backend env for Render
-- `.env.netlify.example` - frontend env for Netlify
+Это значит, что вы можете деплоить репозиторий как один `Node.js` сервис.
 
-### Local backend
+## Лучший простой вариант
+
+Самый простой деплой для этого репозитория:
+- `Render` как один Web Service
+
+В репозитории уже есть `render.yaml`, поэтому можно импортировать проект напрямую.
+
+## Deploy На Render
+
+### 1. Импорт
+
+Создайте новый `Blueprint` или `Web Service` из этого GitHub-репозитория.
+
+Если Render спрашивает команды:
+- Build Command: `npm install`
+- Start Command: `npm start`
+
+### 2. Environment Variables
+
+Минимально достаточно:
+
+- `JWT_SECRET` = длинная случайная строка
+- `APP_BASE_URL` = `https://your-app-name.onrender.com`
+- `AUTO_JOIN_DEFAULT_CHATS` = `false`
+
+`CORS_ORIGINS` для одного домена не нужен. Оставьте пустым.
+
+### 3. Проверка
+
+После деплоя проверьте:
+
+- `https://YOUR_DOMAIN/api/health`
+
+Если всё в порядке, frontend тоже будет открываться на этом же домене:
+
+- `https://YOUR_DOMAIN/`
+
+## Deploy На Любой Один Хостинг Через Docker
+
+В репозитории есть:
+- `Dockerfile`
+- `.dockerignore`
+
+Это позволяет деплоить проект как один контейнер на любой сервис, где есть Docker deployment.
+
+Локальная проверка:
+
+```bash
+docker build -t mirx .
+docker run -p 3000:3000 -e JWT_SECRET=change-me mirx
+```
+
+## Environment Variables
+
+### Локально
+
+Скопируйте:
 
 ```bash
 copy .env.example .env
+```
+
+Потом:
+
+```bash
 npm start
 ```
 
-### Render backend (Dashboard -> Environment)
+### Для одного хостинга
 
-Set:
+Пример в файле:
 
-- `JWT_SECRET` = long random secret
-- `APP_BASE_URL` = `https://mirgram.onrender.com`
-- `CORS_ORIGINS` = `https://mirnastangram.netlify.app`
-- `AUTO_JOIN_DEFAULT_CHATS` = `false`
+- `.env.render.example`
 
-### Netlify frontend (Site settings -> Environment variables)
+Основные переменные:
 
-Set:
+- `PORT` - обычно хостинг задаёт сам
+- `JWT_SECRET` - обязательно
+- `APP_BASE_URL` - адрес вашего приложения
+- `CORS_ORIGINS` - пусто для single-host deploy
+- `AUTO_JOIN_DEFAULT_CHATS` - `false`
 
-- `MIRNA_API_BASE_URL` = `https://mirgram.onrender.com`
-- `MIRNA_SOCKET_URL` = `https://mirgram.onrender.com`
+## Важное ограничение
 
-## Split deploy (Frontend Netlify + Backend Render)
+Сейчас база данных - `SQLite`.
 
-### 1) Deploy backend to Render
+Это нормально для локального запуска и тестового деплоя, но на бесплатных хостингах локальный диск часто не гарантирован. Значит:
 
-Create a new **Web Service** from this repo.
+- после restart/redeploy база может сброситься
+- загруженные изображения тоже могут потеряться
 
-- Build command: `npm install`
-- Start command: `npm start`
+Если нужен реально долгий продакшен без потери данных, следующий шаг - перевод на `PostgreSQL` и object storage.
 
-Set env vars in Render:
+## Файлы Для Single-Host Deploy
 
-- `JWT_SECRET` = long random string
-- `APP_BASE_URL` = `https://mirgram.onrender.com`
-- `CORS_ORIGINS` = comma-separated frontend origins, example:
-  `https://mirnastangram.netlify.app,http://localhost:8888`
-- `AUTO_JOIN_DEFAULT_CHATS` = `false`
-
-After deploy, check:
-
-- `https://YOUR_RENDER_DOMAIN/api/health`
-
-### 2) Deploy frontend to Netlify
-
-This repo already contains `netlify.toml`:
-
-- Build command: `npm run build:frontend`
-- Publish directory: `public`
-
-Set env vars in Netlify:
-
-- `MIRNA_API_BASE_URL` = `https://mirgram.onrender.com`
-- `MIRNA_SOCKET_URL` = `https://mirgram.onrender.com`
-
-On each Netlify build, `scripts/generate-client-config.js` writes `public/config.js`.
-
-You can change these values later in Render/Netlify dashboards at any time and redeploy.
-
-### 3) Important note
-
-Do not deploy this full app to static-only hosting without a Node process:
-- `/api/*` endpoints, Socket.IO, and calls require the Render backend.
-
-## Files added for deployment
-
-- `netlify.toml` - Netlify frontend build/publish config
-- `render.yaml` - Render web service config template
-- `scripts/generate-client-config.js` - generates runtime frontend config
-- `public/config.js` - runtime frontend config file
+- `package.json` - единый запуск через `npm start`
+- `server.js` - backend + раздача frontend
+- `public/` - клиент
+- `render.yaml` - деплой на Render
+- `Dockerfile` - деплой на любой Docker-hosting
+- `.dockerignore` - чистая сборка контейнера
