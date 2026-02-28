@@ -101,8 +101,12 @@ function toPublicUrl(value) {
 
 function normalizeUsername(value) {
     return String(value || '')
-        .trim()
-        .toLowerCase();
+        .normalize('NFKC')
+        .trim();
+}
+
+function normalizeUsernameKey(value) {
+    return normalizeUsername(value).toLocaleLowerCase('ru-RU');
 }
 
 function validateUsername(username) {
@@ -110,8 +114,8 @@ function validateUsername(username) {
     if (value.length < 3 || value.length > 24) {
         return 'Ник должен быть от 3 до 24 символов.';
     }
-    if (!/^[a-z0-9_]+$/i.test(value)) {
-        return 'Ник может содержать только буквы, цифры и _.';
+    if (!/^[\p{L}\p{N}_.-]+$/u.test(value)) {
+        return 'Ник может содержать буквы, цифры, _, . и -.';
     }
     return null;
 }
@@ -129,7 +133,7 @@ function createToken(userId) {
 
 async function readUser(userId) {
     return db.get(
-        `SELECT id, username, avatar_url AS avatarUrl, created_at AS createdAt
+        `SELECT id, username, avatar_url AS avatarUrl, bio, created_at AS createdAt
          FROM users
          WHERE id = ?`,
         [userId]
@@ -296,7 +300,7 @@ async function authMiddleware(req, res, next) {
 
         const payload = jwt.verify(token, JWT_SECRET);
         const user = await db.get(
-            `SELECT id, username, avatar_url AS avatarUrl, created_at AS createdAt
+            `SELECT id, username, avatar_url AS avatarUrl, bio, created_at AS createdAt
              FROM users
              WHERE id = ?`,
             [payload.userId]
@@ -322,11 +326,13 @@ async function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+            username_key TEXT,
             password_hash TEXT NOT NULL,
             avatar_url TEXT NOT NULL,
+            bio TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         );
-        
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON users(username COLLATE NOCASE);
 
         CREATE TABLE IF NOT EXISTS chats (
@@ -369,6 +375,30 @@ async function initializeDatabase() {
         );
     `);
 
+    const userColumns = await db.all(`PRAGMA table_info(users)`);
+    const userColumnNames = new Set(userColumns.map((column) => column.name));
+
+    if (!userColumnNames.has('username_key')) {
+        await db.exec(`ALTER TABLE users ADD COLUMN username_key TEXT;`);
+    }
+
+    if (!userColumnNames.has('bio')) {
+        await db.exec(`ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT '';`);
+    }
+
+    const existingUsersForMigration = await db.all(`SELECT id, username, username_key AS usernameKey FROM users`);
+    for (const user of existingUsersForMigration) {
+        const normalizedKey = normalizeUsernameKey(user.username);
+        if (!user.usernameKey || user.usernameKey !== normalizedKey) {
+            await db.run(
+                `UPDATE users SET username_key = ? WHERE id = ?`,
+                [normalizedKey, user.id]
+            );
+        }
+    }
+
+    await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);`);
+
     const existingUsers = await db.get('SELECT COUNT(*) AS total FROM users');
     if ((existingUsers?.total || 0) > 0) {
         return;
@@ -378,9 +408,16 @@ async function initializeDatabase() {
     for (const username of demoUsers) {
         const passwordHash = await bcrypt.hash('mirna123', 10);
         await db.run(
-            `INSERT INTO users (username, password_hash, avatar_url, created_at)
-             VALUES (?, ?, ?, ?)`,
-            [username, passwordHash, `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(username)}`, nowIso()]
+            `INSERT INTO users (username, username_key, password_hash, avatar_url, bio, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                username,
+                normalizeUsernameKey(username),
+                passwordHash,
+                `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(username)}`,
+                '',
+                nowIso(),
+            ]
         );
     }
 
@@ -421,22 +458,23 @@ app.post(
     '/api/auth/register',
     withApi(async (req, res) => {
         const username = normalizeUsername(req.body.username);
+        const usernameKey = normalizeUsernameKey(username);
         const password = String(req.body.password || '');
 
         const usernameError = validateUsername(username);
         assert(!usernameError, usernameError, 400);
         assert(password.length >= 6, 'Пароль должен быть не короче 6 символов.', 400);
 
-        const exists = await db.get('SELECT id FROM users WHERE username = ?', [username]);
+        const exists = await db.get('SELECT id FROM users WHERE username_key = ?', [usernameKey]);
         assert(!exists, 'Ник уже занят.', 409);
 
         const passwordHash = await bcrypt.hash(password, 10);
         const avatarUrl = `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(username)}`;
 
         const result = await db.run(
-            `INSERT INTO users (username, password_hash, avatar_url, created_at)
-         VALUES (?, ?, ?, ?)`,
-            [username, passwordHash, avatarUrl, nowIso()]
+            `INSERT INTO users (username, username_key, password_hash, avatar_url, bio, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+            [username, usernameKey, passwordHash, avatarUrl, '', nowIso()]
         );
 
         const newUserId = result.lastID;
@@ -464,13 +502,14 @@ app.post(
     '/api/auth/login',
     withApi(async (req, res) => {
         const username = normalizeUsername(req.body.username);
+        const usernameKey = normalizeUsernameKey(username);
         const password = String(req.body.password || '');
 
         const row = await db.get(
-            `SELECT id, username, password_hash AS passwordHash, avatar_url AS avatarUrl, created_at AS createdAt
+            `SELECT id, username, password_hash AS passwordHash, avatar_url AS avatarUrl, bio, created_at AS createdAt
          FROM users
-         WHERE username = ?`,
-            [username]
+         WHERE username_key = ?`,
+            [usernameKey]
         );
 
         assert(row, 'Неверный ник или пароль.', 401);
@@ -485,6 +524,7 @@ app.post(
                 id: row.id,
                 username: row.username,
                 avatarUrl: row.avatarUrl,
+                bio: row.bio,
                 createdAt: row.createdAt,
             },
         });
@@ -505,21 +545,24 @@ app.put(
     authMiddleware,
     withApi(async (req, res) => {
         const current = await db.get(
-            `SELECT id, username, avatar_url AS avatarUrl
+            `SELECT id, username, avatar_url AS avatarUrl, bio
          FROM users
          WHERE id = ?`,
             [req.user.id]
         );
 
         const nextUsername = req.body.username ? normalizeUsername(req.body.username) : current.username;
+        const nextUsernameKey = normalizeUsernameKey(nextUsername);
         const nextAvatar = req.body.avatarUrl ? String(req.body.avatarUrl).trim() : current.avatarUrl;
+        const nextBio = typeof req.body.bio === 'string' ? req.body.bio.trim() : current.bio;
         const nextPassword = req.body.password ? String(req.body.password) : null;
 
         const usernameError = validateUsername(nextUsername);
         assert(!usernameError, usernameError, 400);
         assert(nextAvatar.length <= 500, 'URL аватара слишком длинный.', 400);
+        assert(nextBio.length <= 280, 'Описание профиля не должно быть длиннее 280 символов.', 400);
 
-        const duplicate = await db.get(`SELECT id FROM users WHERE username = ? AND id <> ?`, [nextUsername, req.user.id]);
+        const duplicate = await db.get(`SELECT id FROM users WHERE username_key = ? AND id <> ?`, [nextUsernameKey, req.user.id]);
         assert(!duplicate, 'Ник уже занят.', 409);
 
         if (nextPassword) {
@@ -527,16 +570,16 @@ app.put(
             const passwordHash = await bcrypt.hash(nextPassword, 10);
             await db.run(
                 `UPDATE users
-             SET username = ?, avatar_url = ?, password_hash = ?
+             SET username = ?, username_key = ?, avatar_url = ?, bio = ?, password_hash = ?
              WHERE id = ?`,
-                [nextUsername, nextAvatar, passwordHash, req.user.id]
+                [nextUsername, nextUsernameKey, nextAvatar, nextBio, passwordHash, req.user.id]
             );
         } else {
             await db.run(
                 `UPDATE users
-             SET username = ?, avatar_url = ?
+             SET username = ?, username_key = ?, avatar_url = ?, bio = ?
              WHERE id = ?`,
-                [nextUsername, nextAvatar, req.user.id]
+                [nextUsername, nextUsernameKey, nextAvatar, nextBio, req.user.id]
             );
         }
 
@@ -550,17 +593,17 @@ app.get(
     authMiddleware,
     withApi(async (req, res) => {
         const q = String(req.query.q || '')
-            .trim()
-            .toLowerCase();
+            .trim();
+        const qKey = normalizeUsernameKey(q);
         const limit = Math.max(1, Math.min(Number(req.query.limit || 30), 100));
 
         const rows = await db.all(
             `SELECT id, username, avatar_url AS avatarUrl
          FROM users
-         WHERE id <> ? AND username LIKE ?
-         ORDER BY username ASC
+         WHERE id <> ? AND username_key LIKE ?
+         ORDER BY username_key ASC
          LIMIT ?`,
-            [req.user.id, `%${q}%`, limit]
+            [req.user.id, `%${qKey}%`, limit]
         );
 
         res.json({ users: rows });
@@ -573,8 +616,8 @@ app.get(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const q = String(req.query.q || '')
-            .trim()
-            .toLowerCase();
+            .trim();
+        const qKey = normalizeUsernameKey(q);
         const limit = Math.max(1, Math.min(Number(req.query.limit || 120), 300));
 
         const actor = await readMembership(chatId, req.user.id);
@@ -596,11 +639,11 @@ app.get(
         const params = [req.user.id, chatId];
 
         if (q.length > 0) {
-            query += ` AND u.username LIKE ?`;
-            params.push(`%${q}%`);
+            query += ` AND u.username_key LIKE ?`;
+            params.push(`%${qKey}%`);
         }
 
-        query += ` ORDER BY u.username ASC LIMIT ?`;
+        query += ` ORDER BY u.username_key ASC LIMIT ?`;
         params.push(limit);
 
         const rows = await db.all(query, params);

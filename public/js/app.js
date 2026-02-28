@@ -69,7 +69,7 @@ const rtcConfig = {
 
 const MOBILE_BREAKPOINT = 840;
 
-const EMOJIS = ["рџЂ", "рџЋ", "рџЌ", "рџ­", "рџЎ", "рџ¤ќ", "рџ”Ґ", "вќ¤пёЏ", "рџЋ‰", "вњ…", "рџ“ћ", "рџЋ¤", "рџ“·", "рџљЂ", "вљЎ", "рџ‘Ќ", "рџ‘Ћ", "рџ™Џ", "рџ…", "рџ¤–", "рџЊЌ", "рџ’¬", "рџ”’", "рџ›ЎпёЏ"];
+const EMOJIS = ["😀", "😌", "😍", "😭", "😡", "🤝", "🔥", "❤️", "🎉", "✅", "📞", "🎤", "📷", "🚀", "⚡", "👍", "👎", "🙏", "😅", "🤖", "🌍", "💬", "🔒", "🛡️"];
 
 const dom = {
     authScreen: document.getElementById("authScreen"),
@@ -93,6 +93,9 @@ const dom = {
     profileBox: document.getElementById("profileBox"),
     chatActions: document.getElementById("chatActions"),
     membersBox: document.getElementById("membersBox"),
+    profileOpenBtn: document.getElementById("profileOpenBtn"),
+    profileOpenAvatar: document.getElementById("profileOpenAvatar"),
+    profileOpenName: document.getElementById("profileOpenName"),
     logoutBtn: document.getElementById("logoutBtn"),
     mobileChatsToggle: document.getElementById("mobileChatsToggle"),
     mobileChatsClose: document.getElementById("mobileChatsClose"),
@@ -112,6 +115,18 @@ const dom = {
     localVideo: document.getElementById("localVideo"),
     remoteVideos: document.getElementById("remoteVideos"),
     leaveCallBtn: document.getElementById("leaveCallBtn"),
+    profileSheet: document.getElementById("profileSheet"),
+    profileSheetBackdrop: document.getElementById("profileSheetBackdrop"),
+    profileSheetClose: document.getElementById("profileSheetClose"),
+    profileEditorForm: document.getElementById("profileEditorForm"),
+    profileEditorAvatarPreview: document.getElementById("profileEditorAvatarPreview"),
+    profileEditorNamePreview: document.getElementById("profileEditorNamePreview"),
+    profileEditorBioPreview: document.getElementById("profileEditorBioPreview"),
+    profileEditorUsername: document.getElementById("profileEditorUsername"),
+    profileEditorAvatarUrl: document.getElementById("profileEditorAvatarUrl"),
+    profileEditorBio: document.getElementById("profileEditorBio"),
+    profileEditorPassword: document.getElementById("profileEditorPassword"),
+    profileEditorCancel: document.getElementById("profileEditorCancel"),
 };
 
 const modalState = {
@@ -119,6 +134,14 @@ const modalState = {
     rejecter: null,
     fields: [],
 };
+
+function defaultAvatar(seed = "MIRX") {
+    return `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(seed)}`;
+}
+
+function getMeAvatar() {
+    return assetUrl(state.me?.avatarUrl || defaultAvatar(state.me?.username || "MIRX"));
+}
 
 function isMobileViewport() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
@@ -131,7 +154,7 @@ function setChatsDrawer(open) {
     dom.mobileChatsToggle.classList.toggle("active", shouldOpen);
     dom.mobileChatsToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
     dom.mobileDrawerBackdrop.classList.toggle("hidden", !shouldOpen);
-    document.body.classList.toggle("drawer-open", shouldOpen);
+    document.body.classList.toggle("drawer-open", shouldOpen || !dom.profileSheet.classList.contains("hidden"));
 }
 
 function toggleChatsDrawer() {
@@ -202,7 +225,7 @@ async function api(path, options = {}) {
         if (res.status === 404 && !API_BASE_URL && !window.location.hostname.includes("localhost")) {
             throw new Error("Backend не найден на текущем домене. Проверь деплой single-host приложения.");
         }
-        throw new Error(data.error || `РћС€РёР±РєР° ${res.status}`);
+        throw new Error(data.error || `Ошибка ${res.status}`);
     }
     return data;
 }
@@ -212,6 +235,7 @@ function setAuthMode(isAuth) {
     dom.appScreen.classList.toggle("hidden", !isAuth);
     if (!isAuth) {
         setChatsDrawer(false);
+        closeProfileSheet();
     }
 }
 
@@ -233,8 +257,8 @@ function closeModal(cancelled = true) {
 }
 
 function openModal({ title, submitLabel, fields }) {
-    dom.modalTitle.textContent = title || "Р¤РѕСЂРјР°";
-    dom.modalSubmit.textContent = submitLabel || "РЎРѕС…СЂР°РЅРёС‚СЊ";
+    dom.modalTitle.textContent = title || "Форма";
+    dom.modalSubmit.textContent = submitLabel || "Сохранить";
     modalState.fields = fields || [];
 
     dom.modalFields.innerHTML = modalState.fields.map((field) => {
@@ -308,7 +332,7 @@ function getCurrentChat() {
 }
 
 function getChatDisplayName(chat) {
-    return chat?.name || "Р§Р°С‚";
+    return chat?.name || "Чат";
 }
 
 function isOnline(userId) {
@@ -316,27 +340,92 @@ function isOnline(userId) {
     return Boolean(state.onlineUsers.get(userId));
 }
 
-function renderProfile() {
+function renderProfileTrigger() {
     if (!state.me) {
-        dom.profileBox.innerHTML = "";
+        dom.profileOpenAvatar.src = "/assets/icon.png";
+        dom.profileOpenName.textContent = "Профиль";
         return;
     }
 
+    dom.profileOpenAvatar.src = getMeAvatar();
+    dom.profileOpenName.textContent = `@${state.me.username}`;
+}
+
+function syncProfilePreview() {
+    if (!state.me) return;
+
+    const previewName = dom.profileEditorUsername.value.trim() || state.me.username || "Профиль";
+    const previewBio = dom.profileEditorBio.value.trim() || "Настройте ник, аватар, описание и пароль.";
+    const previewAvatarUrl = dom.profileEditorAvatarUrl.value.trim();
+
+    dom.profileEditorAvatarPreview.src = assetUrl(previewAvatarUrl || state.me.avatarUrl || defaultAvatar(previewName));
+    dom.profileEditorNamePreview.textContent = `@${previewName}`;
+    dom.profileEditorBioPreview.textContent = previewBio;
+}
+
+function fillProfileEditor() {
+    if (!state.me) return;
+
+    dom.profileEditorUsername.value = state.me.username || "";
+    dom.profileEditorAvatarUrl.value = state.me.avatarUrl || "";
+    dom.profileEditorBio.value = state.me.bio || "";
+    dom.profileEditorPassword.value = "";
+    syncProfilePreview();
+}
+
+function openProfileSheet() {
+    if (!state.me) return;
+    fillProfileEditor();
+    dom.profileSheet.classList.remove("hidden");
+    dom.profileSheet.setAttribute("aria-hidden", "false");
+    document.body.classList.add("drawer-open");
+}
+
+function closeProfileSheet() {
+    dom.profileSheet.classList.add("hidden");
+    dom.profileSheet.setAttribute("aria-hidden", "true");
+    if (!dom.chatsPanel.classList.contains("open")) {
+        document.body.classList.remove("drawer-open");
+    }
+}
+
+function renderProfile() {
+    if (!state.me) {
+        dom.profileBox.innerHTML = "";
+        renderProfileTrigger();
+        return;
+    }
+
+    const bio = state.me.bio?.trim()
+        ? `<div class="profile-bio">${escapeHtml(state.me.bio)}</div>`
+        : "";
+
     dom.profileBox.innerHTML = `
-        <div class="member-item">
-            <div class="member-avatar"><img src="${escapeHtml(assetUrl(state.me.avatarUrl))}" alt="avatar" /></div>
-            <div>
-                <strong>@${escapeHtml(state.me.username)}</strong>
-                <div class="hint">ID: ${state.me.id}</div>
-                <div class="hint">${isOnline(state.me.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</div>
+        <div class="profile-card">
+            <div class="profile-card-top">
+                <img src="${escapeHtml(getMeAvatar())}" alt="avatar" />
+                <div class="profile-card-name">
+                    <strong>@${escapeHtml(state.me.username)}</strong>
+                    <div class="hint">Ваш аккаунт MIRX</div>
+                    <div class="profile-status">
+                        <span class="status-dot ${isOnline(state.me.id) ? "online" : ""}"></span>
+                        <span>${isOnline(state.me.id) ? "Онлайн" : "Не в сети"}</span>
+                    </div>
+                </div>
             </div>
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-            <button id="editProfileBtn" class="btn ghost" type="button">РџСЂРѕС„РёР»СЊ</button>
+            <div class="profile-meta">
+                <div class="profile-meta-row"><span>ID</span><strong>${state.me.id}</strong></div>
+                <div class="profile-meta-row"><span>Ник для входа</span><strong>${escapeHtml(state.me.username)}</strong></div>
+            </div>
+            ${bio}
+            <div class="profile-card-actions">
+                <button id="editProfileBtn" class="btn ghost" type="button">Открыть профиль</button>
+            </div>
         </div>
     `;
 
-    document.getElementById("editProfileBtn")?.addEventListener("click", openProfileEditor);
+    renderProfileTrigger();
+    document.getElementById("editProfileBtn")?.addEventListener("click", openProfileSheet);
 }
 
 function renderChats() {
@@ -376,18 +465,24 @@ function renderChats() {
     const chatItems = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
         const lastText = chat.lastMessage
-            ? (chat.lastMessage.type === "image" ? "рџ“· Р¤РѕС‚Рѕ" : (chat.lastMessage.text || "РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ"))
-            : "РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№";
+            ? (chat.lastMessage.type === "image" ? "📷 Фото" : (chat.lastMessage.text || "Системное сообщение"))
+            : "Нет сообщений";
         const avatar = chat.avatarUrl
             ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
-            : `<span>${chat.type === "group" ? "рџ‘Ґ" : "рџ’¬"}</span>`;
+            : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
+        const time = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "";
+        const typeLabel = chat.type === "group" ? "Группа" : "Личный чат";
 
         return `
             <article class="chat-item ${active}" data-chat-id="${chat.id}">
                 <div class="chat-avatar">${avatar}</div>
                 <div>
-                    <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
+                    <div class="profile-meta-row" style="margin-bottom:4px">
+                        <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
+                        <span class="hint">${escapeHtml(time)}</span>
+                    </div>
                     <p>${escapeHtml(lastText)}</p>
+                    <p class="hint" style="margin-top:4px">${typeLabel}</p>
                 </div>
             </article>
         `;
@@ -411,13 +506,13 @@ function renderChatHeader() {
     const inCurrentCall = callState.active && callState.chatId === chat.id;
     const canJoinCall = Boolean(state.myPermissions?.canStartCalls) || inCurrentCall;
     const callHint = callStatus?.active
-        ? `РђРєС‚РёРІРµРЅ ${callStatus.mode === "video" ? "РІРёРґРµРѕС‡Р°С‚" : "РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"} (${callStatus.participantsCount})`
+        ? `Активен ${callStatus.mode === "video" ? "видеочат" : "голосовой чат"} (${callStatus.participantsCount})`
         : "";
 
     dom.chatHeader.innerHTML = `
         <div class="chat-title">
             <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
-            <small>${chat.type === "group" ? "Р“СЂСѓРїРїР°" : "Р›РёС‡РЅС‹Р№ С‡Р°С‚"} В· ${state.members.length} СѓС‡Р°СЃС‚РЅРёРєРѕРІ ${callHint ? `В· ${escapeHtml(callHint)}` : ""}</small>
+            <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
         </div>
         <div class="header-actions">
             <button id="voiceCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>
@@ -457,14 +552,14 @@ function renderTypingBar() {
 
     const names = Array.from(entry.users.values());
     const text = names.length === 1
-        ? `${names[0]} РїРµС‡Р°С‚Р°РµС‚...`
-        : `${names.slice(0, 2).join(", ")} Рё РµС‰С‘ РїРµС‡Р°С‚Р°СЋС‚...`;
+        ? `${names[0]} печатает...`
+        : `${names.slice(0, 2).join(", ")} и ещё кто-то печатают...`;
     dom.typingBar.textContent = text;
 }
 
 function renderMessages() {
     if (!state.messages.length) {
-        dom.messages.innerHTML = `<p class="hint">РџРѕРєР° РЅРµС‚ СЃРѕРѕР±С‰РµРЅРёР№</p>`;
+        dom.messages.innerHTML = `<p class="hint">Пока нет сообщений</p>`;
         return;
     }
 
@@ -473,7 +568,7 @@ function renderMessages() {
         const cls = ["msg", isSelf ? "self" : "", message.type === "system" ? "system" : ""].join(" ").trim();
         const header = message.sender
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
-            : `<div class="msg-head"><span>РЎРёСЃС‚РµРјР°</span><span>${formatTime(message.createdAt)}</span></div>`;
+            : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
 
         const image = message.imageUrl ? `<img class="msg-image" src="${escapeHtml(assetUrl(message.imageUrl))}" alt="photo" />` : "";
         const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
@@ -493,33 +588,33 @@ function renderMembers() {
 
     const membersHtml = state.members.map((member) => {
         const roleBadge = member.role === "owner"
-            ? "<span class='badge'>РЎРѕР·РґР°С‚РµР»СЊ</span>"
+            ? "<span class='badge'>Создатель</span>"
             : member.role === "admin"
-                ? "<span class='badge'>РђРґРјРёРЅ</span>"
+                ? "<span class='badge'>Админ</span>"
                 : "";
         return `
             <div class="member-item">
                 <div class="member-avatar"><img src="${escapeHtml(assetUrl(member.displayAvatar || member.avatarUrl))}" alt="avatar" /></div>
                 <div>
                     <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
-                    <div class="hint">@${escapeHtml(member.username)} В· ${isOnline(member.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</div>
+                    <div class="hint">@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Не в сети"}</div>
                 </div>
             </div>
         `;
     }).join("");
 
     dom.membersBox.innerHTML = `
-        <h3 style="margin:0 0 10px">РЈС‡Р°СЃС‚РЅРёРєРё</h3>
-        <div class="members-list">${membersHtml || "<p class='hint'>РќРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ</p>"}</div>
+        <h3 style="margin:0 0 10px">Участники</h3>
+        <div class="members-list">${membersHtml || "<p class='hint'>Участников пока нет</p>"}</div>
     `;
 
     const canManage = state.myRole === "owner" || state.myRole === "admin";
 
     dom.chatActions.innerHTML = `
         <div style="display:grid;gap:8px">
-            <button id="myChatProfileBtn" type="button" class="btn ghost">РќРёРє/Р°РІР° РІ С‡Р°С‚Рµ</button>
-            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
-            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">РџСЂР°РІР° СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
+            <button id="myChatProfileBtn" type="button" class="btn ghost">Ник и аватар в чате</button>
+            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Добавить участника</button>` : ""}
+            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">Права участника</button>` : ""}
         </div>
     `;
 
@@ -623,8 +718,10 @@ async function openChat(chatId) {
 async function login(event) {
     event.preventDefault();
     const fd = new FormData(dom.loginForm);
+    const submitBtn = dom.loginForm.querySelector('button[type="submit"]');
 
     try {
+        if (submitBtn) submitBtn.disabled = true;
         const data = await api("/api/auth/login", {
             method: "POST",
             body: {
@@ -639,18 +736,22 @@ async function login(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        toast(`Р’С…РѕРґ РІС‹РїРѕР»РЅРµРЅ: @${state.me.username}`);
+        toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
         toast(error.message);
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
     }
 }
 
 async function register(event) {
     event.preventDefault();
     const fd = new FormData(dom.registerForm);
+    const submitBtn = dom.registerForm.querySelector('button[type="submit"]');
 
     try {
+        if (submitBtn) submitBtn.disabled = true;
         const data = await api("/api/auth/register", {
             method: "POST",
             body: {
@@ -665,10 +766,12 @@ async function register(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        toast(`РђРєРєР°СѓРЅС‚ СЃРѕР·РґР°РЅ: @${state.me.username}`);
+        toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
     } catch (error) {
         toast(error.message);
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
     }
 }
 
@@ -704,18 +807,18 @@ async function openNewPrivateChat() {
         const usersData = await api("/api/users/search?limit=100");
         const users = usersData.users || [];
         if (!users.length) {
-            toast("РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.");
+            toast("Нет доступных пользователей.");
             return;
         }
 
         const payload = await openModal({
-            title: "РќРѕРІС‹Р№ Р»РёС‡РЅС‹Р№ С‡Р°С‚",
-            submitLabel: "РЎРѕР·РґР°С‚СЊ",
+            title: "Новый личный чат",
+            submitLabel: "Создать",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
+                    label: "Пользователь",
                     required: true,
                     options: users.map((user) => ({
                         value: user.id,
@@ -743,20 +846,20 @@ async function openNewGroupChat() {
         const users = usersData.users || [];
 
         const payload = await openModal({
-            title: "РЎРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ",
-            submitLabel: "РЎРѕР·РґР°С‚СЊ",
+            title: "Создать группу",
+            submitLabel: "Создать",
             fields: [
                 {
                     name: "name",
-                    label: "РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹",
+                    label: "Название группы",
                     required: true,
-                    placeholder: "РќР°РїСЂРёРјРµСЂ: RP РљРѕРјР°РЅРґР°",
+                    placeholder: "Например: Команда MIRX",
                 },
                 {
                     name: "memberIds",
                     type: "select",
                     multiple: true,
-                    label: "РЈС‡Р°СЃС‚РЅРёРєРё",
+                    label: "Участники",
                     options: users.map((user) => ({
                         value: user.id,
                         label: `@${user.username}`,
@@ -781,37 +884,43 @@ async function openNewGroupChat() {
 }
 
 async function openProfileEditor() {
+    openProfileSheet();
+}
+
+async function saveProfileFromSheet(event) {
+    event.preventDefault();
     if (!state.me) return;
 
+    const submitBtn = dom.profileEditorForm.querySelector('button[type="submit"]');
+
     try {
-        const payload = await openModal({
-            title: "РџСЂРѕС„РёР»СЊ",
-            submitLabel: "РЎРѕС…СЂР°РЅРёС‚СЊ",
-            fields: [
-                { name: "username", label: "РќРёРє", required: true, value: state.me.username },
-                { name: "avatarUrl", label: "РђРІР°С‚Р°СЂ (URL)", value: state.me.avatarUrl || "" },
-                { name: "password", label: "РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)", type: "password" },
-            ],
-        });
+        if (submitBtn) submitBtn.disabled = true;
+
+        const payload = {
+            username: dom.profileEditorUsername.value.trim(),
+            avatarUrl: dom.profileEditorAvatarUrl.value.trim(),
+            bio: dom.profileEditorBio.value.trim(),
+            password: dom.profileEditorPassword.value,
+        };
 
         const data = await api("/api/profile", {
             method: "PUT",
-            body: {
-                username: payload.username,
-                avatarUrl: payload.avatarUrl,
-                password: payload.password,
-            },
+            body: payload,
         });
 
         state.me = data.user;
         renderProfile();
-        await loadChats();
         if (state.currentChatId) {
             await openChat(state.currentChatId);
+        } else {
+            await loadChats();
         }
-        toast("РџСЂРѕС„РёР»СЊ РѕР±РЅРѕРІР»С‘РЅ.");
+        closeProfileSheet();
+        toast("Профиль обновлён.");
     } catch (error) {
-        if (error.message !== "cancelled") toast(error.message);
+        toast(error.message);
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
     }
 }
 
@@ -820,17 +929,17 @@ async function openMyChatProfile() {
 
     const meMember = state.members.find((member) => member.id === state.me.id);
     if (!meMember) {
-        toast("Р’С‹ РЅРµ РЅР°Р№РґРµРЅС‹ РІ СЃРїРёСЃРєРµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ.");
+        toast("Вы не найдены в списке участников.");
         return;
     }
 
     try {
         const payload = await openModal({
-            title: "РќРёРє Рё Р°РІР° РІ СЌС‚РѕРј С‡Р°С‚Рµ",
-            submitLabel: "РџСЂРёРјРµРЅРёС‚СЊ",
+            title: "Ник и аватар в этом чате",
+            submitLabel: "Применить",
             fields: [
-                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: meMember.groupNick || "" },
-                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: meMember.groupAvatarUrl || "" },
+                { name: "groupNick", label: "Ник в чате", value: meMember.groupNick || "" },
+                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: meMember.groupAvatarUrl || "" },
             ],
         });
 
@@ -844,7 +953,7 @@ async function openMyChatProfile() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РџСЂРѕС„РёР»СЊ РІ С‡Р°С‚Рµ РѕР±РЅРѕРІР»С‘РЅ.");
+        toast("Профиль в чате обновлён.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -878,18 +987,18 @@ async function openAddMemberModal() {
         candidates = Array.from(uniqueById.values());
 
         if (!candidates.length) {
-            toast("РќРµС‚ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ РґР»СЏ РґРѕР±Р°РІР»РµРЅРёСЏ.");
+            toast("Нет зарегистрированных пользователей для добавления.");
             return;
         }
 
         const payload = await openModal({
-            title: "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°",
-            submitLabel: "Р”РѕР±Р°РІРёС‚СЊ",
+            title: "Добавить участника",
+            submitLabel: "Добавить",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹Р№ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
+                    label: "Зарегистрированный пользователь",
                     required: true,
                     options: candidates.map((user) => ({ value: user.id, label: `@${user.username} | ID ${user.id}` })),
                 },
@@ -903,7 +1012,7 @@ async function openAddMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РЈС‡Р°СЃС‚РЅРёРє РґРѕР±Р°РІР»РµРЅ.");
+        toast("Участник добавлен.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -913,19 +1022,19 @@ async function openManageMemberModal() {
 
     const candidates = state.members.filter((member) => member.id !== state.me.id);
     if (!candidates.length) {
-        toast("РќРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РґР»СЏ РЅР°СЃС‚СЂРѕР№РєРё.");
+        toast("Нет участников для настройки.");
         return;
     }
 
     try {
         const pick = await openModal({
-            title: "Р’С‹Р±РµСЂРёС‚Рµ СѓС‡Р°СЃС‚РЅРёРєР°",
-            submitLabel: "Р”Р°Р»РµРµ",
+            title: "Выберите участника",
+            submitLabel: "Далее",
             fields: [
                 {
                     name: "memberId",
                     type: "select",
-                    label: "РЈС‡Р°СЃС‚РЅРёРє",
+                    label: "Участник",
                     required: true,
                     options: candidates.map((member) => ({
                         value: member.id,
@@ -939,44 +1048,44 @@ async function openManageMemberModal() {
         if (!target) return;
 
         const payload = await openModal({
-            title: `РџСЂР°РІР°: @${target.username}`,
-            submitLabel: "РЎРѕС…СЂР°РЅРёС‚СЊ",
+            title: `Права: @${target.username}`,
+            submitLabel: "Сохранить",
             fields: [
                 {
                     name: "role",
                     type: "select",
-                    label: "Р РѕР»СЊ",
+                    label: "Роль",
                     value: target.role,
                     options: state.myRole === "owner"
                         ? [
-                            { value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" },
-                            { value: "admin", label: "РђРґРјРёРЅ" },
-                            { value: "owner", label: "РЎРѕР·РґР°С‚РµР»СЊ" },
+                            { value: "member", label: "Участник" },
+                            { value: "admin", label: "Админ" },
+                            { value: "owner", label: "Создатель" },
                         ]
-                        : [{ value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" }],
+                        : [{ value: "member", label: "Участник" }],
                 },
-                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: target.groupNick || "" },
-                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: target.groupAvatarUrl || "" },
+                { name: "groupNick", label: "Ник в чате", value: target.groupNick || "" },
+                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: target.groupAvatarUrl || "" },
                 {
                     name: "canSend",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ РїРёСЃР°С‚СЊ",
+                    label: "Может писать",
                     value: target.permissions.canSend ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
                 {
                     name: "canSendMedia",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ РѕС‚РїСЂР°РІР»СЏС‚СЊ С„РѕС‚Рѕ",
+                    label: "Может отправлять фото",
                     value: target.permissions.canSendMedia ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
                 {
                     name: "canStartCalls",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ Р·РІРѕРЅРёС‚СЊ",
+                    label: "Может звонить",
                     value: target.permissions.canStartCalls ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
             ],
         });
@@ -995,7 +1104,7 @@ async function openManageMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РџСЂР°РІР° РѕР±РЅРѕРІР»РµРЅС‹.");
+        toast("Права обновлены.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -1005,7 +1114,7 @@ async function sendMessage(event) {
     event.preventDefault();
     if (!state.currentChatId) return;
     if (!state.myPermissions?.canSend) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№ РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
+        toast("У вас нет прав на отправку сообщений в этом чате.");
         return;
     }
 
@@ -1014,22 +1123,23 @@ async function sendMessage(event) {
 
     if (!text && !image) return;
     if (image && !state.myPermissions?.canSendMedia) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ С„РѕС‚Рѕ РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
+        toast("У вас нет прав на отправку фото в этом чате.");
         return;
     }
 
     try {
+        let response;
         if (image) {
             const form = new FormData();
             form.append("image", image);
             form.append("caption", text);
 
-            await api(`/api/chats/${state.currentChatId}/messages/image`, {
+            response = await api(`/api/chats/${state.currentChatId}/messages/image`, {
                 method: "POST",
                 body: form,
             });
         } else {
-            await api(`/api/chats/${state.currentChatId}/messages`, {
+            response = await api(`/api/chats/${state.currentChatId}/messages`, {
                 method: "POST",
                 body: { text },
             });
@@ -1038,6 +1148,12 @@ async function sendMessage(event) {
         dom.messageInput.value = "";
         state.selectedImage = null;
         renderSelectedImage();
+
+        if (response?.message) {
+            upsertMessage(response.message);
+            updateChatWithMessage(response.message);
+            renderMessages();
+        }
 
         if (state.socket) {
             state.socket.emit("typing", { chatId: state.currentChatId, isTyping: false });
@@ -1056,8 +1172,8 @@ function renderSelectedImage() {
 
     dom.selectedImageBar.classList.remove("hidden");
     dom.selectedImageBar.innerHTML = `
-        рџ“· Р’С‹Р±СЂР°РЅРѕ С„РѕС‚Рѕ: ${escapeHtml(state.selectedImage.name)}
-        <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">РЈРґР°Р»РёС‚СЊ</button>
+        📷 Выбрано фото: ${escapeHtml(state.selectedImage.name)}
+        <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">Убрать</button>
     `;
     document.getElementById("clearImageBtn")?.addEventListener("click", () => {
         state.selectedImage = null;
@@ -1097,10 +1213,10 @@ function applyComposerPermissions() {
     if (fileBtn) fileBtn.classList.toggle("disabled", !canMedia);
 
     dom.messageInput.placeholder = !hasChat
-        ? "Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚"
+        ? "Выберите чат"
         : canSend
-            ? "Р’РІРµРґРёС‚Рµ СЃРѕРѕР±С‰РµРЅРёРµ..."
-            : "РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№";
+            ? "Введите сообщение..."
+            : "У вас нет прав на отправку сообщений";
 
     if (!canMedia && state.selectedImage) {
         state.selectedImage = null;
@@ -1125,6 +1241,18 @@ function updateChatWithMessage(message) {
     loadChats().catch(() => {
         // ignore
     });
+}
+
+function upsertMessage(message) {
+    if (!message?.id) return;
+
+    const index = state.messages.findIndex((item) => Number(item.id) === Number(message.id));
+    if (index >= 0) {
+        state.messages[index] = message;
+        return;
+    }
+
+    state.messages.push(message);
 }
 
 function ensureTypingEntry(chatId) {
@@ -1192,7 +1320,7 @@ function handleTypingEvent(payload) {
 
 function getCallChatName(chatId) {
     const chat = state.chats.find((item) => item.id === chatId);
-    return chat ? getChatDisplayName(chat) : `Р§Р°С‚ #${chatId}`;
+    return chat ? getChatDisplayName(chat) : `Чат #${chatId}`;
 }
 
 function createRemoteTile(userId) {
@@ -1220,7 +1348,7 @@ function updateRemoteTileLabel(userId) {
 
     const user = callState.participants.get(userId);
     if (!user) {
-        peer.label.textContent = `РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ ${userId}`;
+        peer.label.textContent = `Пользователь ${userId}`;
         return;
     }
 
@@ -1230,9 +1358,9 @@ function updateRemoteTileLabel(userId) {
 function refreshCallUi() {
     if (!callState.active || !callState.chatId) return;
 
-    const title = callState.mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚";
+    const title = callState.mode === "video" ? "Видеочат" : "Голосовой чат";
     dom.callTitle.textContent = `${title}: ${getCallChatName(callState.chatId)}`;
-    dom.callStatus.textContent = `РЈС‡Р°СЃС‚РЅРёРєРѕРІ: ${callState.participants.size}`;
+    dom.callStatus.textContent = `Участников: ${callState.participants.size}`;
 
     if (callState.mode === "audio") {
         dom.localVideo.classList.add("hidden");
@@ -1422,7 +1550,7 @@ async function handleCallJoined(payload) {
     try {
         await ensureLocalStream(mode);
     } catch (error) {
-        toast("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
+        toast("Не удалось получить доступ к микрофону или камере.");
         stopCall(true);
         return;
     }
@@ -1512,7 +1640,7 @@ async function handleWebRtcIce(payload) {
 
 async function startCall(mode) {
     if (!state.socket || !state.currentChatId) {
-        toast("РћС‚РєСЂРѕР№С‚Рµ С‡Р°С‚ Рё РґРѕР¶РґРёС‚РµСЃСЊ РїРѕРґРєР»СЋС‡РµРЅРёСЏ.");
+        toast("Откройте чат и дождитесь подключения.");
         return;
     }
 
@@ -1523,21 +1651,21 @@ async function startCall(mode) {
             return;
         }
 
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
+        toast("Сначала завершите текущий звонок.");
         return;
     }
 
     try {
         await ensureLocalStream(mode);
     } catch {
-        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
+        toast("Нужен доступ к микрофону и камере.");
         return;
     }
 
     callState.mode = mode;
     dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"}: ${getCallChatName(state.currentChatId)}`;
-    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
+    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
+    dom.callStatus.textContent = "Подключение...";
     state.socket.emit("call:start", { chatId: state.currentChatId, mode });
 }
 
@@ -1551,7 +1679,7 @@ async function joinExistingCall() {
             return;
         }
 
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
+        toast("Сначала завершите текущий звонок.");
         return;
     }
 
@@ -1560,13 +1688,13 @@ async function joinExistingCall() {
     try {
         await ensureLocalStream(mode);
     } catch {
-        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ/РєР°РјРµСЂРµ.");
+        toast("Нужен доступ к микрофону и камере.");
         return;
     }
 
     dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Р’РёРґРµРѕС‡Р°С‚" : "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"}: ${getCallChatName(state.currentChatId)}`;
-    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
+    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
+    dom.callStatus.textContent = "Подключение...";
     state.socket.emit("call:join", { chatId: state.currentChatId });
 }
 
@@ -1634,7 +1762,7 @@ function connectSocket() {
     });
 
     socket.on("connect_error", () => {
-        toast("РџСЂРѕР±Р»РµРјР° realtime-СЃРѕРµРґРёРЅРµРЅРёСЏ. РРґС‘С‚ РїРµСЂРµРїРѕРґРєР»СЋС‡РµРЅРёРµ...");
+        toast("Проблема с realtime-соединением. Идёт переподключение...");
     });
 
     socket.on("disconnect", () => {
@@ -1677,7 +1805,7 @@ function connectSocket() {
         updateChatWithMessage(message);
 
         if (chatId === state.currentChatId) {
-            state.messages.push(message);
+            upsertMessage(message);
             renderMessages();
             clearTypingUser(chatId, Number(message.sender?.id));
             renderTypingBar();
@@ -1723,7 +1851,7 @@ function connectSocket() {
 
         state.callStatusByChat.delete(id);
         if (callState.active && callState.chatId === id) {
-            toast("Р—РІРѕРЅРѕРє Р·Р°РІРµСЂС€С‘РЅ.");
+            toast("Звонок завершён.");
             stopCall(false);
         }
 
@@ -1782,7 +1910,7 @@ function connectSocket() {
     });
 
     socket.on("call:error", ({ message }) => {
-        toast(message || "РћС€РёР±РєР° Р·РІРѕРЅРєР°.");
+        toast(message || "Ошибка звонка.");
     });
 
     socket.on("webrtc:offer", async (payload) => {
@@ -1856,7 +1984,7 @@ function bindUi() {
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
-            toast("Р’С‹Р±РµСЂРёС‚Рµ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.");
+            toast("Выберите изображение.");
             dom.imageInput.value = "";
             return;
         }
@@ -1888,6 +2016,14 @@ function bindUi() {
     dom.mobileChatsToggle.addEventListener("click", toggleChatsDrawer);
     dom.mobileChatsClose?.addEventListener("click", () => setChatsDrawer(false));
     dom.mobileDrawerBackdrop?.addEventListener("click", () => setChatsDrawer(false));
+    dom.profileOpenBtn?.addEventListener("click", openProfileSheet);
+    dom.profileSheetClose?.addEventListener("click", closeProfileSheet);
+    dom.profileSheetBackdrop?.addEventListener("click", closeProfileSheet);
+    dom.profileEditorCancel?.addEventListener("click", closeProfileSheet);
+    dom.profileEditorForm?.addEventListener("submit", saveProfileFromSheet);
+    dom.profileEditorUsername?.addEventListener("input", syncProfilePreview);
+    dom.profileEditorAvatarUrl?.addEventListener("input", syncProfilePreview);
+    dom.profileEditorBio?.addEventListener("input", syncProfilePreview);
 
     dom.modalClose.addEventListener("click", () => closeModal(true));
     dom.modalCancel.addEventListener("click", () => closeModal(true));
@@ -1916,6 +2052,10 @@ function bindUi() {
 
         if (!dom.emojiPanel.classList.contains("hidden")) {
             dom.emojiPanel.classList.add("hidden");
+        }
+
+        if (!dom.profileSheet.classList.contains("hidden")) {
+            closeProfileSheet();
         }
     });
 
@@ -1955,7 +2095,7 @@ async function init() {
     try {
         await loadChats();
     } catch (error) {
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С‡Р°С‚С‹.");
+        toast(error.message || "Не удалось загрузить чаты.");
     }
 }
 
