@@ -51,6 +51,8 @@ const state = {
     typingMap: new Map(),
     searchQuery: "",
     selectedImage: null,
+    profileAvatarFile: null,
+    profileAvatarPreviewUrl: "",
     callStatusByChat: new Map(),
 };
 
@@ -61,6 +63,8 @@ const callState = {
     localStream: null,
     peers: new Map(),
     participants: new Map(),
+    micEnabled: true,
+    cameraEnabled: false,
 };
 
 const rtcConfig = {
@@ -112,8 +116,15 @@ const dom = {
     callOverlay: document.getElementById("callOverlay"),
     callTitle: document.getElementById("callTitle"),
     callStatus: document.getElementById("callStatus"),
+    callModeLabel: document.getElementById("callModeLabel"),
+    callHintText: document.getElementById("callHintText"),
+    callParticipants: document.getElementById("callParticipants"),
     localVideo: document.getElementById("localVideo"),
+    localAvatarFallback: document.getElementById("localAvatarFallback"),
     remoteVideos: document.getElementById("remoteVideos"),
+    callDismissBtn: document.getElementById("callDismissBtn"),
+    toggleMicBtn: document.getElementById("toggleMicBtn"),
+    toggleCameraBtn: document.getElementById("toggleCameraBtn"),
     leaveCallBtn: document.getElementById("leaveCallBtn"),
     profileSheet: document.getElementById("profileSheet"),
     profileSheetBackdrop: document.getElementById("profileSheetBackdrop"),
@@ -123,7 +134,8 @@ const dom = {
     profileEditorNamePreview: document.getElementById("profileEditorNamePreview"),
     profileEditorBioPreview: document.getElementById("profileEditorBioPreview"),
     profileEditorUsername: document.getElementById("profileEditorUsername"),
-    profileEditorAvatarUrl: document.getElementById("profileEditorAvatarUrl"),
+    profileEditorAvatarInput: document.getElementById("profileEditorAvatarInput"),
+    profileEditorAvatarMeta: document.getElementById("profileEditorAvatarMeta"),
     profileEditorBio: document.getElementById("profileEditorBio"),
     profileEditorPassword: document.getElementById("profileEditorPassword"),
     profileEditorCancel: document.getElementById("profileEditorCancel"),
@@ -143,6 +155,19 @@ function getMeAvatar() {
     return assetUrl(state.me?.avatarUrl || defaultAvatar(state.me?.username || "MIRX"));
 }
 
+function clearProfileAvatarPreviewUrl() {
+    if (!state.profileAvatarPreviewUrl) return;
+    URL.revokeObjectURL(state.profileAvatarPreviewUrl);
+    state.profileAvatarPreviewUrl = "";
+}
+
+function getProfileDraftAvatar() {
+    if (state.profileAvatarPreviewUrl) {
+        return state.profileAvatarPreviewUrl;
+    }
+    return assetUrl(state.me?.avatarUrl || defaultAvatar(state.me?.username || "MIRX"));
+}
+
 function isMobileViewport() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
 }
@@ -154,7 +179,10 @@ function setChatsDrawer(open) {
     dom.mobileChatsToggle.classList.toggle("active", shouldOpen);
     dom.mobileChatsToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
     dom.mobileDrawerBackdrop.classList.toggle("hidden", !shouldOpen);
-    document.body.classList.toggle("drawer-open", shouldOpen || !dom.profileSheet.classList.contains("hidden"));
+    document.body.classList.toggle(
+        "drawer-open",
+        shouldOpen || !dom.profileSheet.classList.contains("hidden") || !dom.callOverlay.classList.contains("hidden")
+    );
 }
 
 function toggleChatsDrawer() {
@@ -356,18 +384,22 @@ function syncProfilePreview() {
 
     const previewName = dom.profileEditorUsername.value.trim() || state.me.username || "Профиль";
     const previewBio = dom.profileEditorBio.value.trim() || "Настройте ник, аватар, описание и пароль.";
-    const previewAvatarUrl = dom.profileEditorAvatarUrl.value.trim();
 
-    dom.profileEditorAvatarPreview.src = assetUrl(previewAvatarUrl || state.me.avatarUrl || defaultAvatar(previewName));
+    dom.profileEditorAvatarPreview.src = getProfileDraftAvatar() || defaultAvatar(previewName);
     dom.profileEditorNamePreview.textContent = `@${previewName}`;
     dom.profileEditorBioPreview.textContent = previewBio;
+    dom.profileEditorAvatarMeta.textContent = state.profileAvatarFile
+        ? `Выбрано: ${state.profileAvatarFile.name}`
+        : "Файл не выбран";
 }
 
 function fillProfileEditor() {
     if (!state.me) return;
 
+    clearProfileAvatarPreviewUrl();
+    state.profileAvatarFile = null;
     dom.profileEditorUsername.value = state.me.username || "";
-    dom.profileEditorAvatarUrl.value = state.me.avatarUrl || "";
+    dom.profileEditorAvatarInput.value = "";
     dom.profileEditorBio.value = state.me.bio || "";
     dom.profileEditorPassword.value = "";
     syncProfilePreview();
@@ -384,6 +416,11 @@ function openProfileSheet() {
 function closeProfileSheet() {
     dom.profileSheet.classList.add("hidden");
     dom.profileSheet.setAttribute("aria-hidden", "true");
+    clearProfileAvatarPreviewUrl();
+    state.profileAvatarFile = null;
+    if (dom.profileEditorAvatarInput) {
+        dom.profileEditorAvatarInput.value = "";
+    }
     if (!dom.chatsPanel.classList.contains("open")) {
         document.body.classList.remove("drawer-open");
     }
@@ -435,21 +472,40 @@ function renderChats() {
 
     state.filteredChats = chats;
 
+    const groupCount = chats.filter((chat) => chat.type === "group").length;
+    const privateCount = chats.filter((chat) => chat.type === "private").length;
+    const liveCount = chats.filter((chat) => state.callStatusByChat.has(chat.id)).length;
+
     const actionItems = `
-        <article class="chat-item chat-item-action" data-create="private">
-            <div class="chat-avatar chat-avatar-action"><span>+</span></div>
-            <div>
-                <h4>Новый личный чат</h4>
-                <p>Выбрать пользователя и открыть ЛС</p>
+        <section class="chat-stack-head">
+            <div class="chat-stack-copy">
+                <span class="chat-stack-badge">MIRX space</span>
+                <h3>Ваши диалоги</h3>
+                <p>Личные чаты, группы и активные эфиры в одной ленте.</p>
             </div>
-        </article>
-        <article class="chat-item chat-item-action" data-create="group">
-            <div class="chat-avatar chat-avatar-action"><span>◎</span></div>
-            <div>
-                <h4>Новая группа</h4>
-                <p>Создать общий чат и пригласить участников</p>
+            <div class="chat-stack-stats">
+                <div><span>${chats.length}</span><small>всего</small></div>
+                <div><span>${privateCount}</span><small>личных</small></div>
+                <div><span>${groupCount}</span><small>групп</small></div>
+                <div><span>${liveCount}</span><small>эфиров</small></div>
             </div>
-        </article>
+        </section>
+        <div class="chat-action-grid">
+            <article class="chat-item chat-item-action" data-create="private">
+                <div class="chat-avatar chat-avatar-action"><span>+</span></div>
+                <div>
+                    <h4>Новый личный чат</h4>
+                    <p>Выбрать пользователя и открыть ЛС</p>
+                </div>
+            </article>
+            <article class="chat-item chat-item-action" data-create="group">
+                <div class="chat-avatar chat-avatar-action"><span>◎</span></div>
+                <div>
+                    <h4>Новая группа</h4>
+                    <p>Создать общий чат и пригласить участников</p>
+                </div>
+            </article>
+        </div>
     `;
 
     if (!chats.length) {
@@ -472,17 +528,28 @@ function renderChats() {
             : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
         const time = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "";
         const typeLabel = chat.type === "group" ? "Группа" : "Личный чат";
+        const callStatus = state.callStatusByChat.get(chat.id);
+        const callBadge = callStatus?.active
+            ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Видеоэфир" : "Голосовой эфир"}</span>`
+            : "";
+        const membersBadge = chat.type === "group"
+            ? `<span class="chat-chip">${chat.membersCount || 0} участников</span>`
+            : `<span class="chat-chip">1 на 1</span>`;
 
         return `
             <article class="chat-item ${active}" data-chat-id="${chat.id}">
                 <div class="chat-avatar">${avatar}</div>
-                <div>
-                    <div class="profile-meta-row" style="margin-bottom:4px">
+                <div class="chat-card-body">
+                    <div class="chat-card-top">
                         <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
-                        <span class="hint">${escapeHtml(time)}</span>
+                        <span class="chat-time">${escapeHtml(time || "сейчас")}</span>
                     </div>
-                    <p>${escapeHtml(lastText)}</p>
-                    <p class="hint" style="margin-top:4px">${typeLabel}</p>
+                    <p class="chat-preview">${escapeHtml(lastText)}</p>
+                    <div class="chat-meta">
+                        <span class="chat-chip">${typeLabel}</span>
+                        ${membersBadge}
+                        ${callBadge}
+                    </div>
                 </div>
             </article>
         `;
@@ -504,10 +571,14 @@ function renderChatHeader() {
 
     const callStatus = state.callStatusByChat.get(chat.id);
     const inCurrentCall = callState.active && callState.chatId === chat.id;
-    const canJoinCall = Boolean(state.myPermissions?.canStartCalls) || inCurrentCall;
+    const canUseCallAction = callStatus?.active
+        ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
+        : Boolean(state.myPermissions?.canStartCalls);
     const callHint = callStatus?.active
         ? `Активен ${callStatus.mode === "video" ? "видеочат" : "голосовой чат"} (${callStatus.participantsCount})`
         : "";
+    const actionLabel = inCurrentCall ? "Открыть эфир" : callStatus?.active ? "Подключиться" : "Начать эфир";
+    const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : "📞";
 
     dom.chatHeader.innerHTML = `
         <div class="chat-title">
@@ -515,25 +586,25 @@ function renderChatHeader() {
             <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
         </div>
         <div class="header-actions">
-            <button id="voiceCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>
-                <span>🎤</span><span>Голос</span>
+            <button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
+                <span>${actionIcon}</span><span>${actionLabel}</span>
             </button>
-            <button id="videoCallBtn" class="btn ghost" type="button" ${!state.myPermissions?.canStartCalls || inCurrentCall ? "disabled" : ""}>
-                <span>📹</span><span>Видео</span>
-            </button>
-            ${callStatus?.active ? `<button id="joinCallBtn" class="btn ghost" type="button" ${!canJoinCall ? "disabled" : ""}><span>📡</span><span>${inCurrentCall ? "Открыть" : "Подключиться"}</span></button>` : ""}
         </div>
     `;
 
-    document.getElementById("voiceCallBtn")?.addEventListener("click", () => startCall("audio"));
-    document.getElementById("videoCallBtn")?.addEventListener("click", () => startCall("video"));
-    document.getElementById("joinCallBtn")?.addEventListener("click", () => {
+    document.getElementById("chatCallBtn")?.addEventListener("click", () => {
         if (inCurrentCall) {
-            dom.callOverlay.classList.remove("hidden");
+            openCallOverlay();
             refreshCallUi();
             return;
         }
-        joinExistingCall();
+
+        if (callStatus?.active) {
+            joinExistingCall();
+            return;
+        }
+
+        startCall();
     });
 }
 
@@ -793,6 +864,8 @@ async function logout() {
     state.typingMap.clear();
     state.callStatusByChat.clear();
     state.selectedImage = null;
+    state.profileAvatarFile = null;
+    clearProfileAvatarPreviewUrl();
 
     setAuthMode(false);
     renderChats();
@@ -896,9 +969,23 @@ async function saveProfileFromSheet(event) {
     try {
         if (submitBtn) submitBtn.disabled = true;
 
+        if (state.profileAvatarFile) {
+            const avatarForm = new FormData();
+            avatarForm.append("avatar", state.profileAvatarFile);
+
+            const avatarData = await api("/api/profile/avatar", {
+                method: "POST",
+                body: avatarForm,
+            });
+
+            state.me = avatarData.user;
+            clearProfileAvatarPreviewUrl();
+            state.profileAvatarFile = null;
+            dom.profileEditorAvatarInput.value = "";
+        }
+
         const payload = {
             username: dom.profileEditorUsername.value.trim(),
-            avatarUrl: dom.profileEditorAvatarUrl.value.trim(),
             bio: dom.profileEditorBio.value.trim(),
             password: dom.profileEditorPassword.value,
         };
@@ -1323,23 +1410,108 @@ function getCallChatName(chatId) {
     return chat ? getChatDisplayName(chat) : `Чат #${chatId}`;
 }
 
+function openCallOverlay() {
+    dom.callOverlay.classList.remove("hidden");
+    document.body.classList.add("drawer-open");
+}
+
+function closeCallOverlay() {
+    dom.callOverlay.classList.add("hidden");
+    if (!dom.chatsPanel.classList.contains("open") && dom.profileSheet.classList.contains("hidden")) {
+        document.body.classList.remove("drawer-open");
+    }
+}
+
+function getLocalAudioTrack() {
+    return callState.localStream?.getAudioTracks?.()[0] || null;
+}
+
+function getLocalVideoTrack() {
+    return callState.localStream?.getVideoTracks?.()[0] || null;
+}
+
+function updateLocalCallPreview() {
+    dom.localAvatarFallback.src = getMeAvatar();
+    dom.localVideo.srcObject = callState.localStream;
+
+    const showVideo = Boolean(callState.cameraEnabled && getLocalVideoTrack());
+    dom.localVideo.classList.toggle("hidden", !showVideo);
+    dom.localAvatarFallback.classList.toggle("hidden", showVideo);
+}
+
+function renderCallParticipants() {
+    const participants = Array.from(callState.participants.values()).sort((left, right) => {
+        if (left.id === state.me?.id) return -1;
+        if (right.id === state.me?.id) return 1;
+        return String(left.username || "").localeCompare(String(right.username || ""), "ru-RU");
+    });
+
+    if (!participants.length) {
+        dom.callParticipants.innerHTML = `<p class="hint">Никого нет в эфире.</p>`;
+        return;
+    }
+
+    dom.callParticipants.innerHTML = participants.map((participant) => {
+        const label = participant.id === state.me?.id ? "Вы в эфире" : "В эфире";
+        const avatar = assetUrl(participant.avatarUrl || defaultAvatar(participant.username || `user_${participant.id}`));
+        return `
+            <article class="call-participant ${participant.id === state.me?.id ? "self" : ""}">
+                <img src="${escapeHtml(avatar)}" alt="avatar" />
+                <div>
+                    <strong>@${escapeHtml(participant.username || `user_${participant.id}`)}</strong>
+                    <span>${label}</span>
+                </div>
+            </article>
+        `;
+    }).join("");
+}
+
 function createRemoteTile(userId) {
     const tile = document.createElement("div");
     tile.className = "remote-tile";
     tile.dataset.userId = String(userId);
 
+    const shell = document.createElement("div");
+    shell.className = "remote-media-shell";
+
+    const avatar = document.createElement("img");
+    avatar.className = "remote-avatar-fallback";
+    avatar.alt = "avatar";
+
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
+    video.classList.add("hidden");
 
-    const label = document.createElement("div");
-    label.className = "hint";
+    const meta = document.createElement("div");
+    meta.className = "remote-tile-meta";
 
-    tile.appendChild(video);
-    tile.appendChild(label);
+    const name = document.createElement("strong");
+    const hint = document.createElement("span");
+
+    shell.appendChild(avatar);
+    shell.appendChild(video);
+    meta.appendChild(name);
+    meta.appendChild(hint);
+    tile.appendChild(shell);
+    tile.appendChild(meta);
     dom.remoteVideos.appendChild(tile);
 
-    return { tile, video, label };
+    return { tile, shell, avatar, video, meta, name, hint };
+}
+
+function updateRemoteTileMedia(userId) {
+    const peer = callState.peers.get(userId);
+    if (!peer) return;
+
+    const user = callState.participants.get(userId);
+    const avatarUrl = assetUrl(user?.avatarUrl || defaultAvatar(user?.username || `user_${userId}`));
+    const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
+
+    peer.avatar.src = avatarUrl;
+    peer.video.classList.toggle("hidden", !hasVideo);
+    peer.avatar.classList.toggle("hidden", hasVideo);
+    peer.tile.classList.toggle("has-video", hasVideo);
 }
 
 function updateRemoteTileLabel(userId) {
@@ -1348,28 +1520,35 @@ function updateRemoteTileLabel(userId) {
 
     const user = callState.participants.get(userId);
     if (!user) {
-        peer.label.textContent = `Пользователь ${userId}`;
+        peer.name.textContent = `Пользователь ${userId}`;
+        peer.hint.textContent = "В эфире";
         return;
     }
 
-    peer.label.textContent = `@${user.username || `user_${userId}`}`;
+    peer.name.textContent = `@${user.username || `user_${userId}`}`;
+    peer.hint.textContent = peer.remoteStream.getVideoTracks().length > 0 ? "Камера включена" : "Голосовой эфир";
 }
 
 function refreshCallUi() {
     if (!callState.active || !callState.chatId) return;
 
-    const title = callState.mode === "video" ? "Видеочат" : "Голосовой чат";
-    dom.callTitle.textContent = `${title}: ${getCallChatName(callState.chatId)}`;
-    dom.callStatus.textContent = `Участников: ${callState.participants.size}`;
+    const roomMode = callState.mode === "video" ? "Видеоэфир" : "Голосовой эфир";
+    dom.callTitle.textContent = getCallChatName(callState.chatId);
+    dom.callModeLabel.textContent = roomMode;
+    dom.callStatus.textContent = `Участников: ${callState.participants.size} · ${callState.micEnabled ? "микрофон включён" : "микрофон выключен"}`;
+    dom.callHintText.textContent = callState.cameraEnabled
+        ? "Камера активна. Можно переключаться между голосом и видео прямо во время звонка."
+        : "Сейчас вы в голосовом эфире. Камеру можно включить в любой момент.";
+    dom.toggleMicBtn.textContent = callState.micEnabled ? "🎙 Микрофон включён" : "🔇 Микрофон выключен";
+    dom.toggleCameraBtn.textContent = callState.cameraEnabled ? "📷 Выключить камеру" : "📹 Включить камеру";
+    dom.toggleMicBtn.classList.toggle("active", callState.micEnabled);
+    dom.toggleCameraBtn.classList.toggle("active", callState.cameraEnabled);
 
-    if (callState.mode === "audio") {
-        dom.localVideo.classList.add("hidden");
-    } else {
-        dom.localVideo.classList.remove("hidden");
-    }
-
+    updateLocalCallPreview();
+    renderCallParticipants();
     for (const userId of callState.peers.keys()) {
         updateRemoteTileLabel(userId);
+        updateRemoteTileMedia(userId);
     }
 }
 
@@ -1397,37 +1576,57 @@ function clearPeers() {
     dom.remoteVideos.innerHTML = "";
 }
 
-function addLocalTracks(peerConnection) {
-    if (!callState.localStream) return;
+async function syncPeerLocalTracks(peer) {
+    if (!peer) return;
 
-    const senders = peerConnection.getSenders();
-    for (const track of callState.localStream.getTracks()) {
-        const exists = senders.some((sender) => sender.track && sender.track.kind === track.kind);
-        if (!exists) {
-            peerConnection.addTrack(track, callState.localStream);
-        }
-    }
+    const audioTrack = getLocalAudioTrack();
+    const videoTrack = callState.cameraEnabled ? getLocalVideoTrack() : null;
+
+    await peer.audioSender.replaceTrack(audioTrack || null);
+    await peer.videoSender.replaceTrack(videoTrack || null);
+}
+
+async function syncAllPeerTracks() {
+    const peers = Array.from(callState.peers.values());
+    await Promise.all(peers.map((peer) => syncPeerLocalTracks(peer)));
 }
 
 async function ensureLocalStream(mode) {
-    const needsVideo = mode === "video";
-    const hasStream = Boolean(callState.localStream);
-    const hasVideo = hasStream && callState.localStream.getVideoTracks().length > 0;
+    const wantsVideo = mode === "video";
 
-    if (!hasStream || hasVideo !== needsVideo) {
-        if (callState.localStream) {
-            for (const track of callState.localStream.getTracks()) {
-                track.stop();
-            }
+    if (!callState.localStream) {
+        try {
+            callState.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: true,
+            });
+        } catch {
+            callState.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false,
+            });
         }
-
-        callState.localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: needsVideo,
-        });
     }
 
-    dom.localVideo.srcObject = callState.localStream;
+    if (!getLocalAudioTrack()) {
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+        });
+        const audioTrack = audioStream.getAudioTracks()[0];
+        if (audioTrack) {
+            callState.localStream.addTrack(audioTrack);
+        }
+    }
+
+    const videoTrack = getLocalVideoTrack();
+    if (videoTrack) {
+        videoTrack.enabled = wantsVideo;
+    }
+
+    callState.micEnabled = Boolean(getLocalAudioTrack()?.enabled);
+    callState.cameraEnabled = Boolean(videoTrack && wantsVideo);
+    updateLocalCallPreview();
 }
 
 async function ensurePeer(userId) {
@@ -1435,12 +1634,13 @@ async function ensurePeer(userId) {
         return callState.peers.get(userId);
     }
 
-    const { tile, video, label } = createRemoteTile(userId);
+    const { tile, shell, avatar, video, meta, name, hint } = createRemoteTile(userId);
     const remoteStream = new MediaStream();
     video.srcObject = remoteStream;
 
     const pc = new RTCPeerConnection(rtcConfig);
-    addLocalTracks(pc);
+    const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+    const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" });
 
     pc.onicecandidate = (event) => {
         if (!event.candidate || !state.socket || !callState.active || !callState.chatId) {
@@ -1463,6 +1663,8 @@ async function ensurePeer(userId) {
                 remoteStream.addTrack(track);
             }
         }
+        updateRemoteTileMedia(userId);
+        updateRemoteTileLabel(userId);
     };
 
     pc.onconnectionstatechange = () => {
@@ -1487,11 +1689,19 @@ async function ensurePeer(userId) {
         pc,
         remoteStream,
         tile,
+        shell,
+        avatar,
         video,
-        label,
+        meta,
+        name,
+        hint,
+        audioSender: audioTransceiver.sender,
+        videoSender: videoTransceiver.sender,
     };
 
     callState.peers.set(userId, peer);
+    await syncPeerLocalTracks(peer);
+    updateRemoteTileMedia(userId);
     updateRemoteTileLabel(userId);
     return peer;
 }
@@ -1501,6 +1711,7 @@ async function createOfferFor(userId) {
 
     try {
         const peer = await ensurePeer(userId);
+        await syncPeerLocalTracks(peer);
         if (peer.pc.signalingState !== "stable") return;
 
         const offer = await peer.pc.createOffer();
@@ -1548,20 +1759,22 @@ async function handleCallJoined(payload) {
     }
 
     try {
-        await ensureLocalStream(mode);
+        await ensureLocalStream("audio");
     } catch (error) {
         toast("Не удалось получить доступ к микрофону или камере.");
         stopCall(true);
         return;
     }
 
+    callState.micEnabled = Boolean(getLocalAudioTrack()?.enabled);
+    callState.cameraEnabled = false;
     state.callStatusByChat.set(chatId, {
         active: true,
         mode,
         participantsCount: callState.participants.size,
     });
 
-    dom.callOverlay.classList.remove("hidden");
+    openCallOverlay();
     refreshCallUi();
 
     for (const user of callState.participants.values()) {
@@ -1585,10 +1798,12 @@ async function handleWebRtcOffer(payload) {
 
     try {
         const peer = await ensurePeer(fromUserId);
+        await syncPeerLocalTracks(peer);
         callState.participants.set(fromUserId, {
             id: fromUserId,
             username: payload.fromUsername || `user_${fromUserId}`,
         });
+        renderCallParticipants();
         updateRemoteTileLabel(fromUserId);
         refreshCallUi();
 
@@ -1638,7 +1853,73 @@ async function handleWebRtcIce(payload) {
     }
 }
 
-async function startCall(mode) {
+function setRoomCallMode(mode) {
+    callState.mode = mode === "video" ? "video" : "audio";
+    if (state.socket && callState.active && callState.chatId) {
+        state.socket.emit("call:mode", {
+            chatId: callState.chatId,
+            mode: callState.mode,
+        });
+    }
+}
+
+async function toggleMic() {
+    const audioTrack = getLocalAudioTrack();
+    if (!audioTrack) {
+        toast("Микрофон не найден.");
+        return;
+    }
+
+    audioTrack.enabled = !audioTrack.enabled;
+    callState.micEnabled = audioTrack.enabled;
+    refreshCallUi();
+}
+
+async function toggleCamera() {
+    if (!callState.active) {
+        toast("Сначала подключитесь к звонку.");
+        return;
+    }
+
+    try {
+        let videoTrack = getLocalVideoTrack();
+
+        if (!callState.cameraEnabled) {
+            if (!videoTrack) {
+                const videoStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: true,
+                });
+                videoTrack = videoStream.getVideoTracks()[0];
+                if (videoTrack && callState.localStream) {
+                    callState.localStream.addTrack(videoTrack);
+                }
+            }
+
+            if (!videoTrack) {
+                throw new Error("Не удалось получить камеру.");
+            }
+
+            videoTrack.enabled = true;
+            callState.cameraEnabled = true;
+            await syncAllPeerTracks();
+            setRoomCallMode("video");
+        } else {
+            if (videoTrack) {
+                videoTrack.enabled = false;
+            }
+            callState.cameraEnabled = false;
+            await syncAllPeerTracks();
+            setRoomCallMode("audio");
+        }
+
+        refreshCallUi();
+    } catch (error) {
+        toast(error.message || "Не удалось переключить камеру.");
+    }
+}
+
+async function startCall() {
     if (!state.socket || !state.currentChatId) {
         toast("Откройте чат и дождитесь подключения.");
         return;
@@ -1646,7 +1927,7 @@ async function startCall(mode) {
 
     if (callState.active) {
         if (callState.chatId === state.currentChatId) {
-            dom.callOverlay.classList.remove("hidden");
+            openCallOverlay();
             refreshCallUi();
             return;
         }
@@ -1656,17 +1937,19 @@ async function startCall(mode) {
     }
 
     try {
-        await ensureLocalStream(mode);
+        await ensureLocalStream("audio");
     } catch {
         toast("Нужен доступ к микрофону и камере.");
         return;
     }
 
-    callState.mode = mode;
-    dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
+    callState.micEnabled = Boolean(getLocalAudioTrack()?.enabled);
+    callState.cameraEnabled = false;
+    callState.mode = "audio";
+    openCallOverlay();
+    dom.callTitle.textContent = getCallChatName(state.currentChatId);
     dom.callStatus.textContent = "Подключение...";
-    state.socket.emit("call:start", { chatId: state.currentChatId, mode });
+    state.socket.emit("call:start", { chatId: state.currentChatId, mode: "audio" });
 }
 
 async function joinExistingCall() {
@@ -1674,7 +1957,7 @@ async function joinExistingCall() {
 
     if (callState.active) {
         if (callState.chatId === state.currentChatId) {
-            dom.callOverlay.classList.remove("hidden");
+            openCallOverlay();
             refreshCallUi();
             return;
         }
@@ -1683,17 +1966,17 @@ async function joinExistingCall() {
         return;
     }
 
-    const mode = state.callStatusByChat.get(state.currentChatId)?.mode || "audio";
-
     try {
-        await ensureLocalStream(mode);
+        await ensureLocalStream("audio");
     } catch {
         toast("Нужен доступ к микрофону и камере.");
         return;
     }
 
-    dom.callOverlay.classList.remove("hidden");
-    dom.callTitle.textContent = `${mode === "video" ? "Видеочат" : "Голосовой чат"}: ${getCallChatName(state.currentChatId)}`;
+    callState.micEnabled = Boolean(getLocalAudioTrack()?.enabled);
+    callState.cameraEnabled = false;
+    openCallOverlay();
+    dom.callTitle.textContent = getCallChatName(state.currentChatId);
     dom.callStatus.textContent = "Подключение...";
     state.socket.emit("call:join", { chatId: state.currentChatId });
 }
@@ -1718,10 +2001,14 @@ function stopCall(notify = true) {
     callState.mode = "audio";
     callState.localStream = null;
     callState.participants.clear();
+    callState.micEnabled = true;
+    callState.cameraEnabled = false;
 
     dom.localVideo.srcObject = null;
+    dom.localAvatarFallback.src = getMeAvatar();
     dom.remoteVideos.innerHTML = "";
-    dom.callOverlay.classList.add("hidden");
+    dom.callParticipants.innerHTML = "";
+    closeCallOverlay();
     dom.callStatus.textContent = "";
 
     if (currentCallChatId && state.currentChatId === currentCallChatId) {
@@ -1840,6 +2127,11 @@ function connectSocket() {
             state.callStatusByChat.delete(chatId);
         }
 
+        if (callState.active && callState.chatId === chatId && payload.active) {
+            callState.mode = payload.mode === "video" ? "video" : "audio";
+            refreshCallUi();
+        }
+
         if (state.currentChatId === chatId) {
             renderChatHeader();
         }
@@ -1864,13 +2156,16 @@ function connectSocket() {
         await handleCallJoined(payload);
     });
 
-    socket.on("call:user-joined", async ({ chatId, user }) => {
+    socket.on("call:user-joined", async ({ chatId, user, mode }) => {
         const id = Number(chatId);
         if (!id || !user?.id || !state.me) return;
         if (!callState.active || callState.chatId !== id) return;
 
         const userId = Number(user.id);
         callState.participants.set(userId, user);
+        if (mode) {
+            callState.mode = mode === "video" ? "video" : callState.mode;
+        }
 
         state.callStatusByChat.set(id, {
             active: true,
@@ -1910,6 +2205,9 @@ function connectSocket() {
     });
 
     socket.on("call:error", ({ message }) => {
+        if (!callState.active) {
+            closeCallOverlay();
+        }
         toast(message || "Ошибка звонка.");
     });
 
@@ -2022,8 +2320,30 @@ function bindUi() {
     dom.profileEditorCancel?.addEventListener("click", closeProfileSheet);
     dom.profileEditorForm?.addEventListener("submit", saveProfileFromSheet);
     dom.profileEditorUsername?.addEventListener("input", syncProfilePreview);
-    dom.profileEditorAvatarUrl?.addEventListener("input", syncProfilePreview);
     dom.profileEditorBio?.addEventListener("input", syncProfilePreview);
+    dom.profileEditorAvatarInput?.addEventListener("change", () => {
+        const file = dom.profileEditorAvatarInput.files?.[0];
+        if (!file) {
+            state.profileAvatarFile = null;
+            clearProfileAvatarPreviewUrl();
+            syncProfilePreview();
+            return;
+        }
+
+        if (!file.type.startsWith("image/")) {
+            toast("Для профиля можно загрузить только изображение.");
+            state.profileAvatarFile = null;
+            clearProfileAvatarPreviewUrl();
+            dom.profileEditorAvatarInput.value = "";
+            syncProfilePreview();
+            return;
+        }
+
+        clearProfileAvatarPreviewUrl();
+        state.profileAvatarFile = file;
+        state.profileAvatarPreviewUrl = URL.createObjectURL(file);
+        syncProfilePreview();
+    });
 
     dom.modalClose.addEventListener("click", () => closeModal(true));
     dom.modalCancel.addEventListener("click", () => closeModal(true));
@@ -2033,7 +2353,15 @@ function bindUi() {
             closeModal(true);
         }
     });
+    dom.callOverlay?.addEventListener("click", (event) => {
+        if (event.target === dom.callOverlay) {
+            closeCallOverlay();
+        }
+    });
 
+    dom.callDismissBtn?.addEventListener("click", closeCallOverlay);
+    dom.toggleMicBtn?.addEventListener("click", toggleMic);
+    dom.toggleCameraBtn?.addEventListener("click", toggleCamera);
     dom.leaveCallBtn.addEventListener("click", () => stopCall(true));
     attachTyping();
 
@@ -2056,6 +2384,10 @@ function bindUi() {
 
         if (!dom.profileSheet.classList.contains("hidden")) {
             closeProfileSheet();
+        }
+
+        if (!dom.callOverlay.classList.contains("hidden")) {
+            closeCallOverlay();
         }
     });
 

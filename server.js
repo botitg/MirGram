@@ -20,7 +20,8 @@ const APP_BASE_URL = String(process.env.APP_BASE_URL || '')
     .replace(/\/+$/, '');
 const DB_PATH = path.join(__dirname, 'data', 'mirnachat-online.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const UPLOAD_DIR = path.join(__dirname, 'uploads', 'images');
+const MESSAGE_UPLOAD_DIR = path.join(__dirname, 'uploads', 'images');
+const AVATAR_UPLOAD_DIR = path.join(__dirname, 'uploads', 'avatars');
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
     .split(',')
     .map((item) => item.trim())
@@ -30,7 +31,8 @@ const allowAllOrigins = CORS_ORIGINS.length === 0 || CORS_ORIGINS.includes('*');
 const socketCorsOrigin = allowAllOrigins ? true : CORS_ORIGINS;
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(MESSAGE_UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(AVATAR_UPLOAD_DIR, { recursive: true });
 
 const app = express();
 const server = http.createServer(app);
@@ -55,26 +57,31 @@ app.use(express.json({ limit: '4mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(PUBLIC_DIR));
 
-const upload = multer({
-    storage: multer.diskStorage({
-        destination: (_, __, cb) => cb(null, UPLOAD_DIR),
-        filename: (_, file, cb) => {
-            const ext = (path.extname(file.originalname || '') || '.jpg').slice(0, 8);
-            const random = Math.random().toString(36).slice(2, 10);
-            cb(null, `${Date.now()}-${random}${ext}`);
+function createImageUpload(destination, fileSizeLimitMb = 8) {
+    return multer({
+        storage: multer.diskStorage({
+            destination: (_, __, cb) => cb(null, destination),
+            filename: (_, file, cb) => {
+                const ext = (path.extname(file.originalname || '') || '.jpg').slice(0, 8);
+                const random = Math.random().toString(36).slice(2, 10);
+                cb(null, `${Date.now()}-${random}${ext}`);
+            },
+        }),
+        limits: {
+            fileSize: fileSizeLimitMb * 1024 * 1024,
         },
-    }),
-    limits: {
-        fileSize: 8 * 1024 * 1024,
-    },
-    fileFilter: (_, file, cb) => {
-        if (!file.mimetype || !file.mimetype.startsWith('image/')) {
-            cb(new Error('Разрешены только изображения.'));
-            return;
-        }
-        cb(null, true);
-    },
-});
+        fileFilter: (_, file, cb) => {
+            if (!file.mimetype || !file.mimetype.startsWith('image/')) {
+                cb(new Error('Разрешены только изображения.'));
+                return;
+            }
+            cb(null, true);
+        },
+    });
+}
+
+const messageUpload = createImageUpload(MESSAGE_UPLOAD_DIR, 8);
+const avatarUpload = createImageUpload(AVATAR_UPLOAD_DIR, 6);
 
 let db;
 
@@ -168,6 +175,16 @@ async function userChatIds(userId) {
         [userId]
     );
     return rows.map((row) => row.chatId);
+}
+
+async function notifyUserChatsUpdated(userId) {
+    const chatIds = await userChatIds(userId);
+    for (const chatId of chatIds) {
+        io.to(chatRoom(chatId)).emit('member:updated', {
+            chatId,
+            userId,
+        });
+    }
 }
 
 async function userIdentityInChat(chatId, userId) {
@@ -584,6 +601,36 @@ app.put(
         }
 
         const user = await readUser(req.user.id);
+        await notifyUserChatsUpdated(req.user.id);
+        res.json({ user });
+    })
+);
+
+app.post(
+    '/api/profile/avatar',
+    authMiddleware,
+    (req, res, next) => {
+        avatarUpload.single('avatar')(req, res, (error) => {
+            if (error) {
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
+                return;
+            }
+            next();
+        });
+    },
+    withApi(async (req, res) => {
+        assert(req.file, 'Файл не получен.', 400);
+
+        const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+        await db.run(
+            `UPDATE users
+             SET avatar_url = ?
+             WHERE id = ?`,
+            [avatarUrl, req.user.id]
+        );
+
+        const user = await readUser(req.user.id);
+        await notifyUserChatsUpdated(req.user.id);
         res.json({ user });
     })
 );
@@ -1150,7 +1197,7 @@ app.post(
     '/api/chats/:chatId/messages/image',
     authMiddleware,
     (req, res, next) => {
-        upload.single('image')(req, res, (error) => {
+        messageUpload.single('image')(req, res, (error) => {
             if (error) {
                 res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
@@ -1398,6 +1445,23 @@ io.on('connection', async (socket) => {
         const id = Number(chatId);
         socket.leave(callRoom(id));
         await leaveCall(id, userId);
+    });
+
+    socket.on('call:mode', ({ chatId, mode }) => {
+        const id = Number(chatId);
+        const call = activeCalls.get(id);
+        if (!call || !call.participants.has(userId)) {
+            return;
+        }
+
+        call.mode = mode === 'video' ? 'video' : 'audio';
+
+        io.to(chatRoom(id)).emit('call:status', {
+            chatId: id,
+            active: true,
+            mode: call.mode,
+            participantsCount: call.participants.size,
+        });
     });
 
     socket.on('webrtc:offer', ({ chatId, toUserId, sdp, mode }) => {

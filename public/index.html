@@ -193,10 +193,19 @@
                         Ник
                         <input id="profileEditorUsername" name="username" type="text" required minlength="3" maxlength="24" />
                     </label>
-                    <label>
-                        Аватар (URL)
-                        <input id="profileEditorAvatarUrl" name="avatarUrl" type="url" placeholder="https://..." />
-                    </label>
+                    <div class="profile-upload-card profile-editor-wide">
+                        <div>
+                            <div class="profile-upload-title">Фото профиля</div>
+                            <p class="hint">Загрузите JPG, PNG или WEBP. Ссылка больше не нужна.</p>
+                        </div>
+                        <div class="profile-upload-actions">
+                            <label class="btn ghost profile-upload-btn">
+                                Загрузить фото
+                                <input id="profileEditorAvatarInput" name="avatar" type="file" accept="image/*" hidden />
+                            </label>
+                        </div>
+                        <div id="profileEditorAvatarMeta" class="hint">Файл не выбран</div>
+                    </div>
                     <label class="profile-editor-wide">
                         Описание
                         <textarea id="profileEditorBio" name="bio" rows="4" maxlength="280" placeholder="Расскажите о себе или оставьте статус."></textarea>
@@ -234,14 +243,47 @@
     <div id="callOverlay" class="call-overlay hidden">
         <div class="call-panel">
             <div class="call-head">
-                <h3 id="callTitle">Звонок</h3>
-                <button id="leaveCallBtn" class="btn danger" type="button">Завершить</button>
+                <div>
+                    <div class="panel-eyebrow">MIRX live</div>
+                    <h3 id="callTitle">Звонок</h3>
+                </div>
+                <div class="call-head-actions">
+                    <button id="callDismissBtn" class="btn ghost" type="button">Свернуть</button>
+                    <button id="leaveCallBtn" class="btn danger" type="button">Завершить</button>
+                </div>
             </div>
-            <div class="call-videos">
-                <video id="localVideo" autoplay muted playsinline></video>
-                <div id="remoteVideos" class="remote-videos"></div>
+            <div class="call-body">
+                <div class="call-stage">
+                    <div class="call-main">
+                        <article class="call-local-card">
+                            <div class="call-video-shell">
+                                <img id="localAvatarFallback" class="call-avatar-fallback" src="/assets/icon.png" alt="Вы" />
+                                <video id="localVideo" autoplay muted playsinline></video>
+                            </div>
+                            <div class="call-feed-meta">
+                                <strong>Вы</strong>
+                                <span id="callStatus" class="hint"></span>
+                            </div>
+                        </article>
+                        <div id="remoteVideos" class="remote-videos"></div>
+                    </div>
+                    <aside class="call-sidebar">
+                        <div class="call-sidebar-card">
+                            <div class="call-sidebar-label">Режим</div>
+                            <strong id="callModeLabel">Голосовой эфир</strong>
+                            <p id="callHintText" class="hint">Внутри звонка можно включить камеру.</p>
+                        </div>
+                        <div class="call-sidebar-card">
+                            <div class="call-sidebar-label">Участники</div>
+                            <div id="callParticipants" class="call-participants"></div>
+                        </div>
+                    </aside>
+                </div>
+                <div class="call-controls">
+                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">🎙 Микрофон</button>
+                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">📹 Камера</button>
+                </div>
             </div>
-            <p id="callStatus" class="hint"></p>
         </div>
     </div>
 
