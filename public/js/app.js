@@ -9,6 +9,7 @@ function normalizeBaseUrl(value) {
 
 const API_BASE_URL = normalizeBaseUrl(runtimeConfig.API_BASE_URL || "");
 const SOCKET_URL = normalizeBaseUrl(runtimeConfig.SOCKET_URL || API_BASE_URL || "");
+const VAPID_PUBLIC_KEY = String(runtimeConfig.VAPID_PUBLIC_KEY || "").trim();
 
 function withBaseUrl(path) {
     if (/^https?:\/\//i.test(path)) {
@@ -35,6 +36,13 @@ function assetUrl(pathOrUrl) {
     return withBaseUrl(value.startsWith("/") ? value : `/${value}`);
 }
 
+function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replaceAll("-", "+").replaceAll("_", "/");
+    const rawData = window.atob(base64);
+    return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+}
+
 const state = {
     token: localStorage.getItem(TOKEN_KEY) || "",
     me: null,
@@ -51,9 +59,14 @@ const state = {
     typingMap: new Map(),
     searchQuery: "",
     selectedImage: null,
+    selectedAudio: null,
+    selectedVideo: null,
     profileAvatarFile: null,
     profileAvatarPreviewUrl: "",
     callStatusByChat: new Map(),
+    serviceWorkerRegistration: null,
+    pushEnabled: false,
+    pendingCallChatId: null,
 };
 
 const callState = {
@@ -91,6 +104,8 @@ const dom = {
     composer: document.getElementById("composer"),
     messageInput: document.getElementById("messageInput"),
     imageInput: document.getElementById("imageInput"),
+    audioInput: document.getElementById("audioInput"),
+    videoInput: document.getElementById("videoInput"),
     selectedImageBar: document.getElementById("selectedImageBar"),
     emojiBtn: document.getElementById("emojiBtn"),
     emojiPanel: document.getElementById("emojiPanel"),
@@ -153,6 +168,96 @@ function defaultAvatar(seed = "MIRX") {
 
 function getMeAvatar() {
     return assetUrl(state.me?.avatarUrl || defaultAvatar(state.me?.username || "MIRX"));
+}
+
+async function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return null;
+    if (state.serviceWorkerRegistration) return state.serviceWorkerRegistration;
+
+    state.serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js");
+    return state.serviceWorkerRegistration;
+}
+
+async function syncPushSubscription() {
+    if (!state.me || !VAPID_PUBLIC_KEY || !("serviceWorker" in navigator)) {
+        state.pushEnabled = false;
+        renderProfile();
+        return;
+    }
+
+    const registration = await registerServiceWorker();
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription && Notification.permission === "granted") {
+        subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+    }
+
+    if (subscription) {
+        await api("/api/notifications/subscribe", {
+            method: "POST",
+            body: {
+                subscription: subscription.toJSON(),
+            },
+        });
+        state.pushEnabled = true;
+    } else {
+        state.pushEnabled = false;
+    }
+
+    renderProfile();
+}
+
+async function enablePushNotifications() {
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+        toast("Этот браузер не поддерживает push-уведомления.");
+        return;
+    }
+    if (!VAPID_PUBLIC_KEY) {
+        toast("Push-уведомления ещё не настроены на сервере.");
+        return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+        toast("Разрешение на уведомления не выдано.");
+        state.pushEnabled = false;
+        renderProfile();
+        return;
+    }
+
+    try {
+        await syncPushSubscription();
+        toast("Уведомления включены.");
+    } catch (error) {
+        toast(error.message || "Не удалось включить уведомления.");
+    }
+}
+
+function notifyBrowser(title, options = {}) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    if (document.visibilityState === "visible" && document.hasFocus()) {
+        return;
+    }
+
+    if (state.serviceWorkerRegistration) {
+        state.serviceWorkerRegistration.showNotification(title, {
+            icon: "/assets/icon.png",
+            badge: "/assets/icon.png",
+            ...options,
+        }).catch(() => {
+            // ignore
+        });
+        return;
+    }
+
+    new Notification(title, {
+        icon: "/assets/icon.png",
+        ...options,
+    });
 }
 
 function clearProfileAvatarPreviewUrl() {
@@ -437,6 +542,11 @@ function renderProfile() {
         ? `<div class="profile-bio">${escapeHtml(state.me.bio)}</div>`
         : "";
 
+    const notificationsSupported = "Notification" in window && "serviceWorker" in navigator;
+    const notificationAction = notificationsSupported
+        ? `<button id="enableNotificationsBtn" class="btn ghost" type="button">${state.pushEnabled ? "Уведомления включены" : "Включить уведомления"}</button>`
+        : "";
+
     dom.profileBox.innerHTML = `
         <div class="profile-card">
             <div class="profile-card-top">
@@ -457,12 +567,14 @@ function renderProfile() {
             ${bio}
             <div class="profile-card-actions">
                 <button id="editProfileBtn" class="btn ghost" type="button">Открыть профиль</button>
+                ${notificationAction}
             </div>
         </div>
     `;
 
     renderProfileTrigger();
     document.getElementById("editProfileBtn")?.addEventListener("click", openProfileSheet);
+    document.getElementById("enableNotificationsBtn")?.addEventListener("click", enablePushNotifications);
 }
 
 function renderChats() {
@@ -481,13 +593,13 @@ function renderChats() {
             <div class="chat-stack-copy">
                 <span class="chat-stack-badge">MIRX space</span>
                 <h3>Ваши диалоги</h3>
-                <p>Личные чаты, группы и активные эфиры в одной ленте.</p>
+                <p>Личные чаты, группы и активные звонки в одной ленте.</p>
             </div>
             <div class="chat-stack-stats">
                 <div><span>${chats.length}</span><small>всего</small></div>
                 <div><span>${privateCount}</span><small>личных</small></div>
                 <div><span>${groupCount}</span><small>групп</small></div>
-                <div><span>${liveCount}</span><small>эфиров</small></div>
+                <div><span>${liveCount}</span><small>звонков</small></div>
             </div>
         </section>
         <div class="chat-action-grid">
@@ -521,7 +633,15 @@ function renderChats() {
     const chatItems = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
         const lastText = chat.lastMessage
-            ? (chat.lastMessage.type === "image" ? "📷 Фото" : (chat.lastMessage.text || "Системное сообщение"))
+            ? (
+                chat.lastMessage.type === "image"
+                    ? "📷 Фото"
+                    : chat.lastMessage.type === "audio"
+                        ? "🎙 Голосовое сообщение"
+                        : chat.lastMessage.type === "video"
+                            ? "🎬 Видеосообщение"
+                            : (chat.lastMessage.text || "Системное сообщение")
+            )
             : "Нет сообщений";
         const avatar = chat.avatarUrl
             ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
@@ -530,7 +650,7 @@ function renderChats() {
         const typeLabel = chat.type === "group" ? "Группа" : "Личный чат";
         const callStatus = state.callStatusByChat.get(chat.id);
         const callBadge = callStatus?.active
-            ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Видеоэфир" : "Голосовой эфир"}</span>`
+            ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Видеозвонок" : "Аудиозвонок"}</span>`
             : "";
         const membersBadge = chat.type === "group"
             ? `<span class="chat-chip">${chat.membersCount || 0} участников</span>`
@@ -569,15 +689,16 @@ function renderChatHeader() {
         return;
     }
 
+    const isPrivateChat = chat.type === "private";
     const callStatus = state.callStatusByChat.get(chat.id);
     const inCurrentCall = callState.active && callState.chatId === chat.id;
     const canUseCallAction = callStatus?.active
         ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
         : Boolean(state.myPermissions?.canStartCalls);
-    const callHint = callStatus?.active
-        ? `Активен ${callStatus.mode === "video" ? "видеочат" : "голосовой чат"} (${callStatus.participantsCount})`
+    const callHint = isPrivateChat && callStatus?.active
+        ? `Идёт ${callStatus.mode === "video" ? "видеозвонок" : "аудиозвонок"}`
         : "";
-    const actionLabel = inCurrentCall ? "Открыть эфир" : callStatus?.active ? "Подключиться" : "Начать эфир";
+    const actionLabel = inCurrentCall ? "Открыть звонок" : callStatus?.active ? "Ответить" : "Позвонить";
     const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : "📞";
 
     dom.chatHeader.innerHTML = `
@@ -586,9 +707,9 @@ function renderChatHeader() {
             <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
         </div>
         <div class="header-actions">
-            <button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
+            ${isPrivateChat ? `<button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
                 <span>${actionIcon}</span><span>${actionLabel}</span>
-            </button>
+            </button>` : ""}
         </div>
     `;
 
@@ -641,10 +762,19 @@ function renderMessages() {
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
             : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
 
-        const image = message.imageUrl ? `<img class="msg-image" src="${escapeHtml(assetUrl(message.imageUrl))}" alt="photo" />` : "";
+        const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
+        const image = message.type === "image" && mediaUrl
+            ? `<img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" />`
+            : "";
+        const audio = message.type === "audio" && mediaUrl
+            ? `<audio class="msg-audio" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></audio>`
+            : "";
+        const video = message.type === "video" && mediaUrl
+            ? `<video class="msg-video" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></video>`
+            : "";
         const text = message.text ? `<div>${escapeHtml(message.text)}</div>` : "";
 
-        return `<article class="${cls}">${header}${image}${text}</article>`;
+        return `<article class="${cls}">${header}${image}${audio}${video}${text}</article>`;
     }).join("");
 
     dom.messages.scrollTop = dom.messages.scrollHeight;
@@ -807,6 +937,11 @@ async function login(event) {
         renderProfile();
         connectSocket();
         await loadChats();
+        if ("Notification" in window && Notification.permission === "granted") {
+            await syncPushSubscription().catch(() => {
+                // ignore
+            });
+        }
         toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
@@ -837,6 +972,11 @@ async function register(event) {
         renderProfile();
         connectSocket();
         await loadChats();
+        if ("Notification" in window && Notification.permission === "granted") {
+            await syncPushSubscription().catch(() => {
+                // ignore
+            });
+        }
         toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
     } catch (error) {
@@ -864,8 +1004,12 @@ async function logout() {
     state.typingMap.clear();
     state.callStatusByChat.clear();
     state.selectedImage = null;
+    state.selectedAudio = null;
+    state.selectedVideo = null;
     state.profileAvatarFile = null;
     clearProfileAvatarPreviewUrl();
+    state.pushEnabled = false;
+    state.pendingCallChatId = null;
 
     setAuthMode(false);
     renderChats();
@@ -1197,6 +1341,41 @@ async function openManageMemberModal() {
     }
 }
 
+function clearSelectedAttachments() {
+    state.selectedImage = null;
+    state.selectedAudio = null;
+    state.selectedVideo = null;
+    dom.imageInput.value = "";
+    dom.audioInput.value = "";
+    dom.videoInput.value = "";
+}
+
+function setSelectedAttachment(kind, file) {
+    clearSelectedAttachments();
+    if (!file) {
+        renderSelectedImage();
+        return;
+    }
+
+    if (kind === "image") state.selectedImage = file;
+    if (kind === "audio") state.selectedAudio = file;
+    if (kind === "video") state.selectedVideo = file;
+    renderSelectedImage();
+}
+
+function getSelectedAttachment() {
+    if (state.selectedVideo) {
+        return { kind: "video", file: state.selectedVideo, field: "video", endpoint: "video", label: "🎬 Видеосообщение" };
+    }
+    if (state.selectedAudio) {
+        return { kind: "audio", file: state.selectedAudio, field: "audio", endpoint: "audio", label: "🎙 Голосовое сообщение" };
+    }
+    if (state.selectedImage) {
+        return { kind: "image", file: state.selectedImage, field: "image", endpoint: "image", label: "📷 Фото" };
+    }
+    return null;
+}
+
 async function sendMessage(event) {
     event.preventDefault();
     if (!state.currentChatId) return;
@@ -1206,22 +1385,22 @@ async function sendMessage(event) {
     }
 
     const text = dom.messageInput.value.trim();
-    const image = state.selectedImage;
+    const attachment = getSelectedAttachment();
 
-    if (!text && !image) return;
-    if (image && !state.myPermissions?.canSendMedia) {
-        toast("У вас нет прав на отправку фото в этом чате.");
+    if (!text && !attachment) return;
+    if (attachment && !state.myPermissions?.canSendMedia) {
+        toast("У вас нет прав на отправку медиа в этом чате.");
         return;
     }
 
     try {
         let response;
-        if (image) {
+        if (attachment) {
             const form = new FormData();
-            form.append("image", image);
+            form.append(attachment.field, attachment.file);
             form.append("caption", text);
 
-            response = await api(`/api/chats/${state.currentChatId}/messages/image`, {
+            response = await api(`/api/chats/${state.currentChatId}/messages/${attachment.endpoint}`, {
                 method: "POST",
                 body: form,
             });
@@ -1233,7 +1412,7 @@ async function sendMessage(event) {
         }
 
         dom.messageInput.value = "";
-        state.selectedImage = null;
+        clearSelectedAttachments();
         renderSelectedImage();
 
         if (response?.message) {
@@ -1251,7 +1430,8 @@ async function sendMessage(event) {
 }
 
 function renderSelectedImage() {
-    if (!state.selectedImage) {
+    const attachment = getSelectedAttachment();
+    if (!attachment) {
         dom.selectedImageBar.classList.add("hidden");
         dom.selectedImageBar.textContent = "";
         return;
@@ -1259,12 +1439,11 @@ function renderSelectedImage() {
 
     dom.selectedImageBar.classList.remove("hidden");
     dom.selectedImageBar.innerHTML = `
-        📷 Выбрано фото: ${escapeHtml(state.selectedImage.name)}
+        ${attachment.label}: ${escapeHtml(attachment.file.name)}
         <button type="button" id="clearImageBtn" class="btn ghost" style="margin-left:8px;padding:4px 8px">Убрать</button>
     `;
     document.getElementById("clearImageBtn")?.addEventListener("click", () => {
-        state.selectedImage = null;
-        dom.imageInput.value = "";
+        clearSelectedAttachments();
         renderSelectedImage();
     });
 }
@@ -1291,13 +1470,17 @@ function applyComposerPermissions() {
     const canMedia = Boolean(canSend && state.myPermissions?.canSendMedia);
 
     const submitBtn = dom.composer.querySelector('button[type="submit"]');
-    const fileBtn = dom.composer.querySelector(".file-btn");
+    const fileButtons = Array.from(dom.composer.querySelectorAll(".file-btn"));
 
     dom.messageInput.disabled = !canSend;
     dom.emojiBtn.disabled = !canSend;
     dom.imageInput.disabled = !canMedia;
+    dom.audioInput.disabled = !canMedia;
+    dom.videoInput.disabled = !canMedia;
     if (submitBtn) submitBtn.disabled = !canSend;
-    if (fileBtn) fileBtn.classList.toggle("disabled", !canMedia);
+    for (const button of fileButtons) {
+        button.classList.toggle("disabled", !canMedia);
+    }
 
     dom.messageInput.placeholder = !hasChat
         ? "Выберите чат"
@@ -1305,9 +1488,8 @@ function applyComposerPermissions() {
             ? "Введите сообщение..."
             : "У вас нет прав на отправку сообщений";
 
-    if (!canMedia && state.selectedImage) {
-        state.selectedImage = null;
-        dom.imageInput.value = "";
+    if (!canMedia && getSelectedAttachment()) {
+        clearSelectedAttachments();
         renderSelectedImage();
     }
 }
@@ -1447,12 +1629,12 @@ function renderCallParticipants() {
     });
 
     if (!participants.length) {
-        dom.callParticipants.innerHTML = `<p class="hint">Никого нет в эфире.</p>`;
+        dom.callParticipants.innerHTML = `<p class="hint">В звонке пока никого нет.</p>`;
         return;
     }
 
     dom.callParticipants.innerHTML = participants.map((participant) => {
-        const label = participant.id === state.me?.id ? "Вы в эфире" : "В эфире";
+        const label = participant.id === state.me?.id ? "Вы в звонке" : "В звонке";
         const avatar = assetUrl(participant.avatarUrl || defaultAvatar(participant.username || `user_${participant.id}`));
         return `
             <article class="call-participant ${participant.id === state.me?.id ? "self" : ""}">
@@ -1521,24 +1703,24 @@ function updateRemoteTileLabel(userId) {
     const user = callState.participants.get(userId);
     if (!user) {
         peer.name.textContent = `Пользователь ${userId}`;
-        peer.hint.textContent = "В эфире";
+        peer.hint.textContent = "В звонке";
         return;
     }
 
     peer.name.textContent = `@${user.username || `user_${userId}`}`;
-    peer.hint.textContent = peer.remoteStream.getVideoTracks().length > 0 ? "Камера включена" : "Голосовой эфир";
+    peer.hint.textContent = peer.remoteStream.getVideoTracks().length > 0 ? "Камера включена" : "Аудиозвонок";
 }
 
 function refreshCallUi() {
     if (!callState.active || !callState.chatId) return;
 
-    const roomMode = callState.mode === "video" ? "Видеоэфир" : "Голосовой эфир";
+    const roomMode = callState.mode === "video" ? "Видеозвонок" : "Аудиозвонок";
     dom.callTitle.textContent = getCallChatName(callState.chatId);
     dom.callModeLabel.textContent = roomMode;
     dom.callStatus.textContent = `Участников: ${callState.participants.size} · ${callState.micEnabled ? "микрофон включён" : "микрофон выключен"}`;
     dom.callHintText.textContent = callState.cameraEnabled
-        ? "Камера активна. Можно переключаться между голосом и видео прямо во время звонка."
-        : "Сейчас вы в голосовом эфире. Камеру можно включить в любой момент.";
+        ? "Камера активна. Можно переключаться между аудио и видео прямо во время звонка."
+        : "Сейчас идёт аудиозвонок. Камеру можно включить в любой момент.";
     dom.toggleMicBtn.textContent = callState.micEnabled ? "🎙 Микрофон включён" : "🔇 Микрофон выключен";
     dom.toggleCameraBtn.textContent = callState.cameraEnabled ? "📷 Выключить камеру" : "📹 Включить камеру";
     dom.toggleMicBtn.classList.toggle("active", callState.micEnabled);
@@ -2091,6 +2273,23 @@ function connectSocket() {
 
         updateChatWithMessage(message);
 
+        const isOwnMessage = Number(message.sender?.id) === Number(state.me?.id);
+        if (!isOwnMessage) {
+            const chatName = getCallChatName(chatId);
+            const preview = message.type === "image"
+                ? "📷 Фото"
+                : message.type === "audio"
+                    ? "🎙 Голосовое сообщение"
+                    : message.type === "video"
+                        ? "🎬 Видеосообщение"
+                        : (message.text || "Новое сообщение");
+            notifyBrowser(chatName, {
+                body: preview,
+                tag: `message-${chatId}`,
+                data: { url: `/?chat=${chatId}` },
+            });
+        }
+
         if (chatId === state.currentChatId) {
             upsertMessage(message);
             renderMessages();
@@ -2116,6 +2315,7 @@ function connectSocket() {
     socket.on("call:status", (payload) => {
         const chatId = Number(payload.chatId);
         if (!chatId) return;
+        const targetChat = state.chats.find((chat) => chat.id === chatId);
 
         if (payload.active) {
             state.callStatusByChat.set(chatId, {
@@ -2123,6 +2323,20 @@ function connectSocket() {
                 mode: payload.mode === "video" ? "video" : "audio",
                 participantsCount: Number(payload.participantsCount || 0),
             });
+
+            if (
+                targetChat?.type === "private" &&
+                state.currentChatId !== chatId &&
+                !callState.active &&
+                document.visibilityState !== "visible"
+            ) {
+                notifyBrowser("Входящий звонок", {
+                    body: `${getCallChatName(chatId)} звонит вам`,
+                    requireInteraction: true,
+                    tag: `call-${chatId}`,
+                    data: { url: `/?chat=${chatId}&call=1` },
+                });
+            }
         } else {
             state.callStatusByChat.delete(chatId);
         }
@@ -2130,6 +2344,19 @@ function connectSocket() {
         if (callState.active && callState.chatId === chatId && payload.active) {
             callState.mode = payload.mode === "video" ? "video" : "audio";
             refreshCallUi();
+        }
+
+        if (
+            payload.active &&
+            state.pendingCallChatId &&
+            Number(state.pendingCallChatId) === chatId &&
+            state.currentChatId === chatId &&
+            !callState.active
+        ) {
+            state.pendingCallChatId = null;
+            joinExistingCall().catch(() => {
+                // ignore
+            });
         }
 
         if (state.currentChatId === chatId) {
@@ -2287,8 +2514,33 @@ function bindUi() {
             return;
         }
 
-        state.selectedImage = file;
-        renderSelectedImage();
+        setSelectedAttachment("image", file);
+    });
+
+    dom.audioInput.addEventListener("change", () => {
+        const file = dom.audioInput.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith("audio/")) {
+            toast("Выберите аудиофайл.");
+            dom.audioInput.value = "";
+            return;
+        }
+
+        setSelectedAttachment("audio", file);
+    });
+
+    dom.videoInput.addEventListener("change", () => {
+        const file = dom.videoInput.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith("video/")) {
+            toast("Выберите видеофайл.");
+            dom.videoInput.value = "";
+            return;
+        }
+
+        setSelectedAttachment("video", file);
     });
 
     dom.emojiBtn.addEventListener("click", (event) => {
@@ -2417,6 +2669,10 @@ async function init() {
         toast("Запущен single-host режим: frontend и backend должны быть доступны на одном домене.");
     }
 
+    registerServiceWorker().catch(() => {
+        // ignore
+    });
+
     await loadSession();
     if (!state.me) {
         setAuthMode(false);
@@ -2426,6 +2682,19 @@ async function init() {
     connectSocket();
     try {
         await loadChats();
+        if ("Notification" in window && Notification.permission === "granted") {
+            await syncPushSubscription().catch(() => {
+                // ignore
+            });
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const chatIdFromUrl = Number(params.get("chat") || 0);
+        const shouldOpenIncomingCall = params.get("call") === "1";
+        if (chatIdFromUrl && state.chats.some((chat) => chat.id === chatIdFromUrl)) {
+            await openChat(chatIdFromUrl);
+            state.pendingCallChatId = shouldOpenIncomingCall ? chatIdFromUrl : null;
+        }
     } catch (error) {
         toast(error.message || "Не удалось загрузить чаты.");
     }

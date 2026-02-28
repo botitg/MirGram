@@ -7,9 +7,17 @@ services:
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      - key: DATABASE_URL
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: APP_BASE_URL
         sync: false
       - key: AUTO_JOIN_DEFAULT_CHATS
         value: "false"
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

@@ -3,7 +3,9 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07121d" />
     <title>MIRX</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/css/app.css" />
 </head>
 <body>
@@ -146,10 +148,20 @@
                         <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
                         <div id="emojiPanel" class="emoji-panel hidden"></div>
                         <input id="messageInput" type="text" maxlength="4000" placeholder="Введите сообщение..." />
-                        <label class="btn ghost file-btn" aria-label="Прикрепить фото">
-                            📷
-                            <input id="imageInput" type="file" accept="image/*" hidden />
-                        </label>
+                        <div class="composer-tools">
+                            <label class="btn ghost file-btn" aria-label="Прикрепить фото">
+                                📷
+                                <input id="imageInput" type="file" accept="image/*" hidden />
+                            </label>
+                            <label class="btn ghost file-btn" aria-label="Прикрепить голосовое сообщение">
+                                🎙
+                                <input id="audioInput" type="file" accept="audio/*" hidden />
+                            </label>
+                            <label class="btn ghost file-btn" aria-label="Прикрепить видеосообщение">
+                                🎬
+                                <input id="videoInput" type="file" accept="video/*" hidden />
+                            </label>
+                        </div>
                         <button class="btn primary" type="submit">Отправить</button>
                     </form>
                     <div id="selectedImageBar" class="selected-image hidden"></div>
@@ -244,7 +256,7 @@
         <div class="call-panel">
             <div class="call-head">
                 <div>
-                    <div class="panel-eyebrow">MIRX live</div>
+                    <div class="panel-eyebrow">MIRX call</div>
                     <h3 id="callTitle">Звонок</h3>
                 </div>
                 <div class="call-head-actions">
@@ -270,7 +282,7 @@
                     <aside class="call-sidebar">
                         <div class="call-sidebar-card">
                             <div class="call-sidebar-label">Режим</div>
-                            <strong id="callModeLabel">Голосовой эфир</strong>
+                            <strong id="callModeLabel">Аудиозвонок</strong>
                             <p id="callHintText" class="hint">Внутри звонка можно включить камеру.</p>
                         </div>
                         <div class="call-sidebar-card">

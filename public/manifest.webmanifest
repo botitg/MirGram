@@ -1,0 +1,18 @@
+{
+    "name": "MIRX",
+    "short_name": "MIRX",
+    "description": "Realtime messenger with private chats, media, calls and notifications.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#07121d",
+    "theme_color": "#07121d",
+    "lang": "ru",
+    "icons": [
+        {
+            "src": "/assets/icon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

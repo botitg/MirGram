@@ -1,6 +1,10 @@
 # MIRX
 
-Единый fullstack-мессенджер на `Node.js + Express + Socket.IO + SQLite`.
+Единый fullstack-мессенджер на `Node.js + Express + Socket.IO`.
+
+Поддерживает два режима хранения:
+- `PostgreSQL` через `DATABASE_URL` для нормального продакшена
+- `SQLite` как локальный fallback для разработки
 
 Frontend и backend запускаются вместе одной командой:
 
@@ -29,6 +33,7 @@ npm start
 
 Самый простой деплой для этого репозитория:
 - `Render` как один Web Service
+- отдельный `PostgreSQL` database service
 
 В репозитории уже есть `render.yaml`, поэтому можно импортировать проект напрямую.
 
@@ -47,8 +52,12 @@ npm start
 Минимально достаточно:
 
 - `JWT_SECRET` = длинная случайная строка
+- `DATABASE_URL` = строка подключения к PostgreSQL
 - `APP_BASE_URL` = `https://your-app-name.onrender.com`
 - `AUTO_JOIN_DEFAULT_CHATS` = `false`
+- `VAPID_PUBLIC_KEY` = публичный ключ для web push
+- `VAPID_PRIVATE_KEY` = приватный ключ для web push
+- `VAPID_SUBJECT` = например `mailto:admin@example.com`
 
 `CORS_ORIGINS` для одного домена не нужен. Оставьте пустым.
 
@@ -107,16 +116,38 @@ npm start
 - `CORS_ORIGINS` - пусто для single-host deploy
 - `AUTO_JOIN_DEFAULT_CHATS` - `false`
 
+## Push и PWA
+
+Проект теперь поддерживает браузерные push-уведомления:
+- новые сообщения
+- входящий личный звонок
+
+Для этого нужны `VAPID_PUBLIC_KEY` и `VAPID_PRIVATE_KEY`.
+
+Сгенерировать их можно командой:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Также добавлены:
+- `manifest.webmanifest`
+- `sw.js`
+
+Это даёт нормальную PWA-базу перед упаковкой в `.apk` через `Capacitor` или `Trusted Web Activity`.
+
 ## Важное ограничение
 
-Сейчас база данных - `SQLite`.
+Если вы не укажете `DATABASE_URL`, приложение откатится на `SQLite`.
 
-Это нормально для локального запуска и тестового деплоя, но на бесплатных хостингах локальный диск часто не гарантирован. Значит:
+Это нормально для локального запуска, но на бесплатных хостингах локальный диск часто не гарантирован. Значит:
 
 - после restart/redeploy база может сброситься
 - загруженные изображения тоже могут потеряться
 
-Если нужен реально долгий продакшен без потери данных, следующий шаг - перевод на `PostgreSQL` и object storage.
+Для реального продакшена используйте:
+- `PostgreSQL`
+- object storage для файлов, если захотите хранить медиа вне диска сервера
 
 ## Файлы Для Single-Host Deploy
 

@@ -1013,6 +1013,15 @@ code {
     border: 1px solid var(--line);
 }
 
+.msg-audio,
+.msg-video {
+    width: 100%;
+    margin-top: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(160, 190, 220, 0.18);
+    background: rgba(4, 11, 18, 0.62);
+}
+
 .composer {
     display: grid;
     grid-template-columns: auto 1fr auto auto;
@@ -1034,6 +1043,12 @@ code {
     place-items: center;
     width: 44px;
     height: 44px;
+}
+
+.composer-tools {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .emoji-panel {
@@ -1874,9 +1889,10 @@ body.drawer-open .mobile-drawer-backdrop {
     }
 
     .composer {
-        grid-template-columns: auto 1fr auto;
+        grid-template-columns: auto 1fr;
     }
 
+    .composer-tools,
     .composer .btn.primary {
         grid-column: 1 / -1;
     }

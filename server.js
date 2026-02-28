@@ -9,8 +9,14 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { Server } = require('socket.io');
-const { open } = require('sqlite');
-const sqlite3 = require('sqlite3');
+const { openDatabase } = require('./lib/database');
+
+let webpush = null;
+try {
+    webpush = require('web-push');
+} catch {
+    webpush = null;
+}
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'mirnachat-online-secret-change-me';
@@ -18,10 +24,16 @@ const AUTO_JOIN_DEFAULT_CHATS = ['1', 'true', 'yes', 'on'].includes(String(proce
 const APP_BASE_URL = String(process.env.APP_BASE_URL || '')
     .trim()
     .replace(/\/+$/, '');
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com').trim();
 const DB_PATH = path.join(__dirname, 'data', 'mirnachat-online.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MESSAGE_UPLOAD_DIR = path.join(__dirname, 'uploads', 'images');
 const AVATAR_UPLOAD_DIR = path.join(__dirname, 'uploads', 'avatars');
+const AUDIO_UPLOAD_DIR = path.join(__dirname, 'uploads', 'audio');
+const VIDEO_UPLOAD_DIR = path.join(__dirname, 'uploads', 'video');
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
     .split(',')
     .map((item) => item.trim())
@@ -33,6 +45,8 @@ const socketCorsOrigin = allowAllOrigins ? true : CORS_ORIGINS;
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 fs.mkdirSync(MESSAGE_UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(AVATAR_UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(AUDIO_UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(VIDEO_UPLOAD_DIR, { recursive: true });
 
 const app = express();
 const server = http.createServer(app);
@@ -57,7 +71,11 @@ app.use(express.json({ limit: '4mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(PUBLIC_DIR));
 
-function createImageUpload(destination, fileSizeLimitMb = 8) {
+if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
+
+function createMediaUpload(destination, { fileSizeLimitMb = 8, allowedMimePrefixes = ['image/'] } = {}) {
     return multer({
         storage: multer.diskStorage({
             destination: (_, __, cb) => cb(null, destination),
@@ -71,8 +89,9 @@ function createImageUpload(destination, fileSizeLimitMb = 8) {
             fileSize: fileSizeLimitMb * 1024 * 1024,
         },
         fileFilter: (_, file, cb) => {
-            if (!file.mimetype || !file.mimetype.startsWith('image/')) {
-                cb(new Error('Разрешены только изображения.'));
+            const isAllowed = allowedMimePrefixes.some((prefix) => file.mimetype && file.mimetype.startsWith(prefix));
+            if (!isAllowed) {
+                cb(new Error('Недопустимый тип файла.'));
                 return;
             }
             cb(null, true);
@@ -80,13 +99,28 @@ function createImageUpload(destination, fileSizeLimitMb = 8) {
     });
 }
 
-const messageUpload = createImageUpload(MESSAGE_UPLOAD_DIR, 8);
-const avatarUpload = createImageUpload(AVATAR_UPLOAD_DIR, 6);
+const messageUpload = createMediaUpload(MESSAGE_UPLOAD_DIR, {
+    fileSizeLimitMb: 8,
+    allowedMimePrefixes: ['image/'],
+});
+const avatarUpload = createMediaUpload(AVATAR_UPLOAD_DIR, {
+    fileSizeLimitMb: 6,
+    allowedMimePrefixes: ['image/'],
+});
+const audioUpload = createMediaUpload(AUDIO_UPLOAD_DIR, {
+    fileSizeLimitMb: 12,
+    allowedMimePrefixes: ['audio/'],
+});
+const videoUpload = createMediaUpload(VIDEO_UPLOAD_DIR, {
+    fileSizeLimitMb: 40,
+    allowedMimePrefixes: ['video/'],
+});
 
 let db;
 
 const onlineCounters = new Map();
 const activeCalls = new Map();
+const pushEnabled = Boolean(webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 
 const userRoom = (userId) => `user:${userId}`;
 const chatRoom = (chatId) => `chat:${chatId}`;
@@ -177,6 +211,56 @@ async function userChatIds(userId) {
     return rows.map((row) => row.chatId);
 }
 
+async function chatParticipantIds(chatId, { excludeUserId = null } = {}) {
+    let query = `SELECT user_id AS userId
+                 FROM chat_members
+                 WHERE chat_id = ?`;
+    const params = [chatId];
+
+    if (excludeUserId) {
+        query += ` AND user_id <> ?`;
+        params.push(excludeUserId);
+    }
+
+    const rows = await db.all(query, params);
+    return rows.map((row) => Number(row.userId)).filter(Boolean);
+}
+
+function isUserOnline(userId) {
+    return (onlineCounters.get(Number(userId)) || 0) > 0;
+}
+
+async function removePushSubscriptionByEndpoint(endpoint) {
+    if (!endpoint) return;
+    await db.run(`DELETE FROM notification_subscriptions WHERE endpoint = ?`, [endpoint]);
+}
+
+async function sendPushToUsers(userIds, payload) {
+    if (!pushEnabled) return;
+
+    const offlineUserIds = [...new Set(userIds.map(Number).filter(Boolean))].filter((userId) => !isUserOnline(userId));
+    if (!offlineUserIds.length) return;
+
+    const rows = await db.all(
+        `SELECT id, user_id AS userId, endpoint, subscription_json AS subscriptionJson
+         FROM notification_subscriptions
+         WHERE user_id IN (${offlineUserIds.map(() => '?').join(',')})`,
+        offlineUserIds
+    );
+
+    await Promise.all(
+        rows.map(async (row) => {
+            try {
+                await webpush.sendNotification(JSON.parse(row.subscriptionJson), JSON.stringify(payload));
+            } catch (error) {
+                if (error?.statusCode === 404 || error?.statusCode === 410) {
+                    await removePushSubscriptionByEndpoint(row.endpoint);
+                }
+            }
+        })
+    );
+}
+
 async function notifyUserChatsUpdated(userId) {
     const chatIds = await userChatIds(userId);
     for (const chatId of chatIds) {
@@ -202,12 +286,14 @@ async function userIdentityInChat(chatId, userId) {
 }
 
 async function serializeMessage(row) {
+    const mediaUrl = toPublicUrl(row.imageUrl);
     return {
         id: row.id,
         chatId: row.chatId,
         type: row.type,
         text: row.text,
-        imageUrl: toPublicUrl(row.imageUrl),
+        imageUrl: mediaUrl,
+        mediaUrl,
         createdAt: row.createdAt,
         sender: row.senderId
             ? {
@@ -260,6 +346,53 @@ async function createMessage({ chatId, userId, type, text = '', imageUrl = null 
 
     const row = await readMessageById(result.lastID);
     return serializeMessage(row);
+}
+
+async function notifyChatMessage(chatId, senderUserId, message) {
+    const recipients = await chatParticipantIds(chatId, { excludeUserId: senderUserId });
+    if (!recipients.length) return;
+
+    const chat = await db.get(
+        `SELECT id, name, type
+         FROM chats
+         WHERE id = ?`,
+        [chatId]
+    );
+
+    const title = chat?.type === 'private'
+        ? `Новое сообщение от @${message.sender?.username || 'пользователя'}`
+        : `${chat?.name || 'Группа'}: новое сообщение`;
+
+    let body = message.text || 'Новое сообщение';
+    if (message.type === 'image') body = '📷 Фото';
+    if (message.type === 'audio') body = '🎙 Голосовое сообщение';
+    if (message.type === 'video') body = '🎬 Видеосообщение';
+
+    await sendPushToUsers(recipients, {
+        title,
+        body,
+        tag: `chat-${chatId}`,
+        url: `/?chat=${chatId}`,
+        icon: '/assets/icon.png',
+        kind: 'message',
+        chatId,
+    });
+}
+
+async function notifyPrivateCall(chatId, callerUserId, callerUsername) {
+    const recipients = await chatParticipantIds(chatId, { excludeUserId: callerUserId });
+    if (!recipients.length) return;
+
+    await sendPushToUsers(recipients, {
+        title: `Входящий звонок от @${callerUsername}`,
+        body: 'Откройте MIRX, чтобы ответить на звонок.',
+        tag: `call-${chatId}`,
+        url: `/?chat=${chatId}&call=1`,
+        icon: '/assets/icon.png',
+        requireInteraction: true,
+        kind: 'call',
+        chatId,
+    });
 }
 
 async function notifyUserPresence(userId, online) {
@@ -332,75 +465,187 @@ async function authMiddleware(req, res, next) {
 }
 
 async function initializeDatabase() {
-    db = await open({
-        filename: DB_PATH,
-        driver: sqlite3.Database,
+    db = await openDatabase({
+        databaseUrl: DATABASE_URL,
+        sqlitePath: DB_PATH,
     });
 
-    await db.exec('PRAGMA foreign_keys = ON;');
+    const baseSchema = db.dialect === 'postgres'
+        ? `
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT NOT NULL,
+                username_key TEXT,
+                password_hash TEXT NOT NULL,
+                avatar_url TEXT NOT NULL,
+                bio TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
 
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL COLLATE NOCASE,
-            username_key TEXT,
-            password_hash TEXT NOT NULL,
-            avatar_url TEXT NOT NULL,
-            bio TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON users (LOWER(username));
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON users(username COLLATE NOCASE);
+            CREATE TABLE IF NOT EXISTS chats (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                type TEXT NOT NULL,
+                owner_id INTEGER,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(owner_id) REFERENCES users(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS chats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            type TEXT NOT NULL CHECK(type IN ('private', 'group')),
-            owner_id INTEGER,
-            is_default INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(owner_id) REFERENCES users(id)
-        );
+            CREATE TABLE IF NOT EXISTS chat_members (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                group_nick TEXT,
+                group_avatar_url TEXT,
+                can_send INTEGER NOT NULL DEFAULT 1,
+                can_send_media INTEGER NOT NULL DEFAULT 1,
+                can_start_calls INTEGER NOT NULL DEFAULT 1,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id),
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
 
-        CREATE TABLE IF NOT EXISTS chat_members (
-            chat_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('owner', 'admin', 'member')),
-            group_nick TEXT,
-            group_avatar_url TEXT,
-            can_send INTEGER NOT NULL DEFAULT 1,
-            can_send_media INTEGER NOT NULL DEFAULT 1,
-            can_start_calls INTEGER NOT NULL DEFAULT 1,
-            joined_at TEXT NOT NULL,
-            PRIMARY KEY (chat_id, user_id),
-            FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
+            CREATE TABLE IF NOT EXISTS messages (
+                id SERIAL PRIMARY KEY,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER,
+                type TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                image_url TEXT,
+                sender_name TEXT NOT NULL,
+                sender_avatar TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER NOT NULL,
-            user_id INTEGER,
-            type TEXT NOT NULL CHECK(type IN ('text', 'image', 'system')),
-            text TEXT NOT NULL DEFAULT '',
-            image_url TEXT,
-            sender_name TEXT NOT NULL,
-            sender_avatar TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
-        );
-    `);
+            CREATE TABLE IF NOT EXISTS notification_subscriptions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                endpoint TEXT NOT NULL,
+                subscription_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
 
-    const userColumns = await db.all(`PRAGMA table_info(users)`);
-    const userColumnNames = new Set(userColumns.map((column) => column.name));
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);
+        `
+        : `
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                username_key TEXT,
+                password_hash TEXT NOT NULL,
+                avatar_url TEXT NOT NULL,
+                bio TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
 
-    if (!userColumnNames.has('username_key')) {
-        await db.exec(`ALTER TABLE users ADD COLUMN username_key TEXT;`);
-    }
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_username ON users(username COLLATE NOCASE);
 
-    if (!userColumnNames.has('bio')) {
-        await db.exec(`ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT '';`);
+            CREATE TABLE IF NOT EXISTS chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                type TEXT NOT NULL CHECK(type IN ('private', 'group')),
+                owner_id INTEGER,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(owner_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_members (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('owner', 'admin', 'member')),
+                group_nick TEXT,
+                group_avatar_url TEXT,
+                can_send INTEGER NOT NULL DEFAULT 1,
+                can_send_media INTEGER NOT NULL DEFAULT 1,
+                can_start_calls INTEGER NOT NULL DEFAULT 1,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id),
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER,
+                type TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                image_url TEXT,
+                sender_name TEXT NOT NULL,
+                sender_avatar TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                endpoint TEXT NOT NULL,
+                subscription_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `;
+
+    await db.exec(baseSchema);
+
+    if (db.dialect === 'postgres') {
+        await db.exec(`
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS username_key TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);
+        `);
+    } else {
+        const userColumns = await db.all(`PRAGMA table_info(users)`);
+        const userColumnNames = new Set(userColumns.map((column) => column.name));
+
+        if (!userColumnNames.has('username_key')) {
+            await db.exec(`ALTER TABLE users ADD COLUMN username_key TEXT;`);
+        }
+
+        if (!userColumnNames.has('bio')) {
+            await db.exec(`ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT '';`);
+        }
+
+        await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);`);
+
+        const messagesTable = await db.get(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'`);
+        if (messagesTable?.sql && messagesTable.sql.includes(`CHECK(type IN ('text', 'image', 'system'))`)) {
+            await db.exec(`
+                ALTER TABLE messages RENAME TO messages_old;
+
+                CREATE TABLE messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER,
+                    type TEXT NOT NULL,
+                    text TEXT NOT NULL DEFAULT '',
+                    image_url TEXT,
+                    sender_name TEXT NOT NULL,
+                    sender_avatar TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                INSERT INTO messages (id, chat_id, user_id, type, text, image_url, sender_name, sender_avatar, created_at)
+                SELECT id, chat_id, user_id, type, text, image_url, sender_name, sender_avatar, created_at
+                FROM messages_old;
+
+                DROP TABLE messages_old;
+            `);
+        }
     }
 
     const existingUsersForMigration = await db.all(`SELECT id, username, username_key AS usernameKey FROM users`);
@@ -468,7 +713,12 @@ async function initializeDatabase() {
 }
 
 app.get('/api/health', (_, res) => {
-    res.json({ ok: true, time: nowIso() });
+    res.json({
+        ok: true,
+        time: nowIso(),
+        database: db?.dialect || 'sqlite',
+        pushEnabled,
+    });
 });
 
 app.post(
@@ -632,6 +882,38 @@ app.post(
         const user = await readUser(req.user.id);
         await notifyUserChatsUpdated(req.user.id);
         res.json({ user });
+    })
+);
+
+app.post(
+    '/api/notifications/subscribe',
+    authMiddleware,
+    withApi(async (req, res) => {
+        assert(pushEnabled, 'Push-уведомления не настроены на сервере.', 400);
+
+        const subscription = req.body.subscription;
+        assert(subscription && typeof subscription === 'object', 'Подписка не получена.', 400);
+        assert(subscription.endpoint, 'У подписки отсутствует endpoint.', 400);
+
+        await removePushSubscriptionByEndpoint(subscription.endpoint);
+        await db.run(
+            `INSERT INTO notification_subscriptions (user_id, endpoint, subscription_json, created_at)
+             VALUES (?, ?, ?, ?)`,
+            [req.user.id, subscription.endpoint, JSON.stringify(subscription), nowIso()]
+        );
+
+        res.json({ ok: true });
+    })
+);
+
+app.delete(
+    '/api/notifications/subscribe',
+    authMiddleware,
+    withApi(async (req, res) => {
+        const endpoint = String(req.body.endpoint || '').trim();
+        assert(endpoint, 'Нужно передать endpoint подписки.', 400);
+        await removePushSubscriptionByEndpoint(endpoint);
+        res.json({ ok: true });
     })
 );
 
@@ -1189,6 +1471,7 @@ app.post(
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
+        await notifyChatMessage(chatId, req.user.id, message);
         res.json({ message });
     })
 );
@@ -1226,6 +1509,83 @@ app.post(
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
+        await notifyChatMessage(chatId, req.user.id, message);
+        res.json({ message });
+    })
+);
+
+app.post(
+    '/api/chats/:chatId/messages/audio',
+    authMiddleware,
+    (req, res, next) => {
+        audioUpload.single('audio')(req, res, (error) => {
+            if (error) {
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
+                return;
+            }
+            next();
+        });
+    },
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const caption = String(req.body.caption || '').trim();
+
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
+
+        const audioUrl = `/uploads/audio/${req.file.filename}`;
+
+        const message = await createMessage({
+            chatId,
+            userId: req.user.id,
+            type: 'audio',
+            text: caption,
+            imageUrl: audioUrl,
+        });
+
+        io.to(chatRoom(chatId)).emit('message:new', message);
+        await notifyChatMessage(chatId, req.user.id, message);
+        res.json({ message });
+    })
+);
+
+app.post(
+    '/api/chats/:chatId/messages/video',
+    authMiddleware,
+    (req, res, next) => {
+        videoUpload.single('video')(req, res, (error) => {
+            if (error) {
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
+                return;
+            }
+            next();
+        });
+    },
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const caption = String(req.body.caption || '').trim();
+
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
+
+        const videoUrl = `/uploads/video/${req.file.filename}`;
+
+        const message = await createMessage({
+            chatId,
+            userId: req.user.id,
+            type: 'video',
+            text: caption,
+            imageUrl: videoUrl,
+        });
+
+        io.to(chatRoom(chatId)).emit('message:new', message);
+        await notifyChatMessage(chatId, req.user.id, message);
         res.json({ message });
     })
 );
@@ -1348,6 +1708,10 @@ io.on('connection', async (socket) => {
             const id = Number(chatId);
             const callMode = mode === 'video' ? 'video' : 'audio';
             const membership = await validateSocketMembership(socket, id);
+            if (membership.chatType !== 'private') {
+                socket.emit('call:error', { message: 'Звонки доступны только в личных чатах.' });
+                return;
+            }
 
             if (!membership.canStartCalls) {
                 socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
@@ -1390,6 +1754,7 @@ io.on('connection', async (socket) => {
                 mode: call.mode,
                 participantsCount: call.participants.size,
             });
+            await notifyPrivateCall(id, socket.user.id, socket.user.username);
         } catch {
             socket.emit('call:error', { message: 'Не удалось начать звонок.' });
         }
@@ -1399,6 +1764,10 @@ io.on('connection', async (socket) => {
         try {
             const id = Number(chatId);
             const membership = await validateSocketMembership(socket, id);
+            if (membership.chatType !== 'private') {
+                socket.emit('call:error', { message: 'Звонки доступны только в личных чатах.' });
+                return;
+            }
             if (!membership.canStartCalls) {
                 socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
                 return;
