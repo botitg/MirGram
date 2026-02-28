@@ -1,4 +1,5 @@
 ﻿const TOKEN_KEY = "mirx.token";
+const NOTIFICATION_PROMPT_KEY = "mirx.notifications.prompted";
 const runtimeConfig = window.MIRNA_CONFIG || {};
 
 function normalizeBaseUrl(value) {
@@ -10,6 +11,7 @@ function normalizeBaseUrl(value) {
 const API_BASE_URL = normalizeBaseUrl(runtimeConfig.API_BASE_URL || "");
 const SOCKET_URL = normalizeBaseUrl(runtimeConfig.SOCKET_URL || API_BASE_URL || "");
 const VAPID_PUBLIC_KEY = String(runtimeConfig.VAPID_PUBLIC_KEY || "").trim();
+const ICE_SERVERS = Array.isArray(runtimeConfig.ICE_SERVERS) ? runtimeConfig.ICE_SERVERS : [];
 
 function withBaseUrl(path) {
     if (/^https?:\/\//i.test(path)) {
@@ -91,6 +93,7 @@ const state = {
     serviceWorkerRegistration: null,
     pushEnabled: false,
     pendingCallChatId: null,
+    notificationPermission: typeof Notification !== "undefined" ? Notification.permission : "unsupported",
     recording: {
         chatId: null,
         kind: null,
@@ -121,13 +124,15 @@ const callState = {
 };
 
 const rtcConfig = {
-    iceServers: [{
-        urls: [
-            "stun:stun.l.google.com:19302",
-            "stun:stun1.l.google.com:19302",
-            "stun:stun2.l.google.com:19302",
-        ],
-    }],
+    iceServers: ICE_SERVERS.length
+        ? ICE_SERVERS
+        : [{
+            urls: [
+                "stun:stun.l.google.com:19302",
+                "stun:stun1.l.google.com:19302",
+                "stun:stun2.l.google.com:19302",
+            ],
+        }],
 };
 
 const MOBILE_BREAKPOINT = 840;
@@ -209,7 +214,38 @@ const modalState = {
 };
 
 function defaultAvatar(seed = "MIRX") {
-    return `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(seed)}`;
+    const normalized = String(seed || "MIRX").trim() || "MIRX";
+    const characters = Array.from(normalized.matchAll(/[\p{L}\p{N}]/gu)).map((item) => item[0]);
+    const initials = (characters.slice(0, 2).join("") || "MX").toUpperCase();
+    const palettes = [
+        ["#0f2744", "#143d66"],
+        ["#1b3045", "#27507a"],
+        ["#2a2438", "#4d3f75"],
+        ["#0f3a3a", "#156a66"],
+        ["#3b2a19", "#8a632d"],
+        ["#2c1f34", "#7f3d80"],
+    ];
+    let hash = 0;
+    for (const char of normalized) {
+        hash = ((hash << 5) - hash) + char.charCodeAt(0);
+        hash |= 0;
+    }
+    const palette = palettes[Math.abs(hash) % palettes.length];
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+            <defs>
+                <linearGradient id="g" x1="8" y1="8" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="${palette[0]}"/>
+                    <stop offset="1" stop-color="${palette[1]}"/>
+                </linearGradient>
+            </defs>
+            <rect width="96" height="96" rx="28" fill="url(#g)"/>
+            <circle cx="78" cy="18" r="10" fill="rgba(244,207,131,0.22)"/>
+            <path d="M18 72C28 57 40 50 54 50C68 50 77 58 82 72" stroke="rgba(255,255,255,0.18)" stroke-width="4" stroke-linecap="round"/>
+            <text x="48" y="56" text-anchor="middle" font-size="32" font-family="Segoe UI, Arial, sans-serif" font-weight="700" fill="#f5f7fb">${initials}</text>
+        </svg>
+    `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
 function getMeAvatar() {
@@ -225,8 +261,22 @@ async function registerServiceWorker() {
 }
 
 async function syncPushSubscription() {
-    if (!state.me || !VAPID_PUBLIC_KEY || !("serviceWorker" in navigator)) {
+    state.notificationPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+
+    if (!state.me) {
         state.pushEnabled = false;
+        renderProfile();
+        return;
+    }
+
+    if (state.notificationPermission !== "granted") {
+        state.pushEnabled = false;
+        renderProfile();
+        return;
+    }
+
+    if (!VAPID_PUBLIC_KEY || !("serviceWorker" in navigator)) {
+        state.pushEnabled = true;
         renderProfile();
         return;
     }
@@ -250,23 +300,20 @@ async function syncPushSubscription() {
         });
         state.pushEnabled = true;
     } else {
-        state.pushEnabled = false;
+        state.pushEnabled = true;
     }
 
     renderProfile();
 }
 
 async function enablePushNotifications() {
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-        toast("Этот браузер не поддерживает push-уведомления.");
-        return;
-    }
-    if (!VAPID_PUBLIC_KEY) {
-        toast("Push-уведомления ещё не настроены на сервере.");
+    if (!("Notification" in window)) {
+        toast("Этот браузер не поддерживает уведомления.");
         return;
     }
 
     const permission = await Notification.requestPermission();
+    state.notificationPermission = permission;
     if (permission !== "granted") {
         toast("Разрешение на уведомления не выдано.");
         state.pushEnabled = false;
@@ -282,12 +329,43 @@ async function enablePushNotifications() {
     }
 }
 
-function notifyBrowser(title, options = {}) {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
+function markNotificationPromptShown() {
+    try {
+        window.sessionStorage?.setItem(NOTIFICATION_PROMPT_KEY, "1");
+    } catch {
+        // ignore
+    }
+}
 
-    if (document.visibilityState === "visible" && document.hasFocus()) {
+function shouldPromptNotificationPermission() {
+    if (!state.me || !("Notification" in window)) {
+        return false;
+    }
+    if (Notification.permission !== "default") {
+        return false;
+    }
+    try {
+        return window.sessionStorage?.getItem(NOTIFICATION_PROMPT_KEY) !== "1";
+    } catch {
+        return true;
+    }
+}
+
+async function maybePromptNotificationPermission() {
+    if (!shouldPromptNotificationPermission()) {
         return;
     }
+
+    markNotificationPromptShown();
+    try {
+        await enablePushNotifications();
+    } catch {
+        // ignore
+    }
+}
+
+function notifyBrowser(title, options = {}) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
 
     if (state.serviceWorkerRegistration) {
         state.serviceWorkerRegistration.showNotification(title, {
@@ -369,6 +447,23 @@ function formatTime(value) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function formatMediaTime(totalSeconds) {
+    const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function safePlayMediaElement(element) {
+    if (!element) return;
+    const playPromise = element.play?.();
+    if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+            // Autoplay can be blocked until the user interacts again.
+        });
+    }
 }
 
 function getToken() {
@@ -599,9 +694,15 @@ function renderProfile() {
         ? `<div class="profile-bio">${escapeHtml(state.me.bio)}</div>`
         : "";
 
-    const notificationsSupported = "Notification" in window && "serviceWorker" in navigator;
+    const notificationsSupported = "Notification" in window;
+    let notificationLabel = "Включить уведомления";
+    if (state.notificationPermission === "denied") {
+        notificationLabel = "Уведомления заблокированы";
+    } else if (state.pushEnabled) {
+        notificationLabel = "Уведомления включены";
+    }
     const notificationAction = notificationsSupported
-        ? `<button id="enableNotificationsBtn" class="btn ghost" type="button">${state.pushEnabled ? "Уведомления включены" : "Включить уведомления"}</button>`
+        ? `<button id="enableNotificationsBtn" class="btn ghost" type="button">${notificationLabel}</button>`
         : "";
 
     dom.profileBox.innerHTML = `
@@ -612,8 +713,8 @@ function renderProfile() {
                     <strong>@${escapeHtml(state.me.username)}</strong>
                     <div class="hint">Ваш аккаунт MIRX</div>
                     <div class="profile-status">
-                        <span class="status-dot ${isOnline(state.me.id) ? "online" : ""}"></span>
-                        <span>${isOnline(state.me.id) ? "Онлайн" : "Не в сети"}</span>
+                        <span class="status-dot ${isOnline(state.me.id) ? "online" : "offline"}"></span>
+                        <span>${isOnline(state.me.id) ? "Онлайн" : "Оффлайн"}</span>
                     </div>
                 </div>
             </div>
@@ -700,9 +801,14 @@ function renderChats() {
                             : (chat.lastMessage.text || "Системное сообщение")
             )
             : "Нет сообщений";
-        const avatar = chat.avatarUrl
+        const peerOnline = chat.type === "private" && chat.peerId ? isOnline(chat.peerId) : false;
+        const avatarBody = chat.avatarUrl
             ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
             : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
+        const avatar = `
+            ${avatarBody}
+            ${chat.type === "private" ? `<span class="chat-avatar-status ${peerOnline ? "online" : "offline"}"></span>` : ""}
+        `;
         const time = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "";
         const typeLabel = chat.type === "group" ? "Группа" : "Личный чат";
         const callStatus = state.callStatusByChat.get(chat.id);
@@ -747,16 +853,32 @@ function renderChatHeader() {
     }
 
     const isPrivateChat = chat.type === "private";
+    const privatePeer = isPrivateChat
+        ? state.members.find((member) => Number(member.id) !== Number(state.me?.id))
+        : null;
     const callStatus = state.callStatusByChat.get(chat.id);
     const inCurrentCall = callState.active && callState.chatId === chat.id;
     const canUseCallAction = callStatus?.active
         ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
         : Boolean(state.myPermissions?.canStartCalls);
-    const callHint = isPrivateChat && callStatus?.active
-        ? `Идёт ${callStatus.mode === "video" ? "видеозвонок" : "аудиозвонок"}`
+    const chatModeLabel = callStatus?.mode === "video" ? "видеочат" : "голосовой чат";
+    const callHint = callStatus?.active
+        ? `Идёт ${chatModeLabel}`
+        : isPrivateChat && privatePeer
+            ? (isOnline(privatePeer.id) ? "пользователь онлайн" : "пользователь оффлайн")
+            : "";
+    const actionLabel = inCurrentCall
+        ? "Открыть звонок"
+        : callStatus?.active
+            ? (isPrivateChat ? "Ответить" : "Войти в эфир")
+            : (isPrivateChat ? "Позвонить" : "Начать эфир");
+    const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : (isPrivateChat ? "📞" : "🎥");
+    const statusMarkup = isPrivateChat && privatePeer
+        ? `<span class="header-status-pill ${isOnline(privatePeer.id) ? "online" : "offline"}">
+                <span class="status-dot ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>
+                ${isOnline(privatePeer.id) ? "Онлайн" : "Оффлайн"}
+           </span>`
         : "";
-    const actionLabel = inCurrentCall ? "Открыть звонок" : callStatus?.active ? "Ответить" : "Позвонить";
-    const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : "📞";
 
     dom.chatHeader.innerHTML = `
         <div class="chat-title">
@@ -764,9 +886,10 @@ function renderChatHeader() {
             <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
         </div>
         <div class="header-actions">
-            ${isPrivateChat ? `<button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
+            ${statusMarkup}
+            <button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
                 <span>${actionIcon}</span><span>${actionLabel}</span>
-            </button>` : ""}
+            </button>
         </div>
     `;
 
@@ -806,6 +929,30 @@ function renderTypingBar() {
     dom.typingBar.textContent = text;
 }
 
+function renderVoiceMessagePlayer(message) {
+    const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
+    if (!mediaUrl) return "";
+
+    return `
+        <div class="msg-media-card msg-voice-card" data-audio-player>
+            <button type="button" class="voice-note-toggle" data-audio-toggle aria-label="Воспроизвести голосовое сообщение">
+                <span class="voice-note-toggle-icon" data-audio-icon>▶</span>
+            </button>
+            <div class="voice-note-body">
+                <div class="voice-note-bars" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <div class="voice-note-meta-row">
+                    <strong>Голосовое сообщение</strong>
+                    <span data-audio-time>0:00</span>
+                </div>
+                <div class="voice-note-progress"><span data-audio-progress></span></div>
+            </div>
+            <audio class="msg-audio sr-only-audio" preload="none" src="${escapeHtml(mediaUrl)}"></audio>
+        </div>
+    `;
+}
+
 function renderMessages() {
     if (!state.messages.length) {
         dom.messages.innerHTML = `<p class="hint">Пока нет сообщений</p>`;
@@ -827,13 +974,8 @@ function renderMessages() {
                 </div>
             `
             : "";
-        const audio = message.type === "audio" && mediaUrl
-            ? `
-                <div class="msg-media-card msg-voice-card">
-                    <div class="msg-voice-head">🎙 Голосовое сообщение</div>
-                    <audio class="msg-audio" controls preload="metadata" src="${escapeHtml(mediaUrl)}"></audio>
-                </div>
-            `
+        const audio = message.type === "audio"
+            ? renderVoiceMessagePlayer(message)
             : "";
         const video = message.type === "video" && mediaUrl
             ? `
@@ -847,6 +989,10 @@ function renderMessages() {
 
         return `<article class="${cls}">${header}${image}${audio}${video}${text}</article>`;
     }).join("");
+
+    for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
+        syncVoiceNotePlayer(player);
+    }
 
     dom.messages.scrollTop = dom.messages.scrollHeight;
 }
@@ -869,7 +1015,10 @@ function renderMembers() {
                 <div class="member-avatar"><img src="${escapeHtml(assetUrl(member.displayAvatar || member.avatarUrl))}" alt="avatar" /></div>
                 <div>
                     <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
-                    <div class="hint">@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Не в сети"}</div>
+                    <div class="hint member-status-line">
+                        <span class="status-dot ${isOnline(member.id) ? "online" : "offline"}"></span>
+                        <span>@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Оффлайн"}</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -1012,11 +1161,14 @@ async function login(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        if ("Notification" in window && Notification.permission === "granted") {
-            await syncPushSubscription().catch(() => {
+        await syncPushSubscription().catch(() => {
+            // ignore
+        });
+        setTimeout(() => {
+            maybePromptNotificationPermission().catch(() => {
                 // ignore
             });
-        }
+        }, 700);
         toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
@@ -1047,11 +1199,14 @@ async function register(event) {
         renderProfile();
         connectSocket();
         await loadChats();
-        if ("Notification" in window && Notification.permission === "granted") {
-            await syncPushSubscription().catch(() => {
+        await syncPushSubscription().catch(() => {
+            // ignore
+        });
+        setTimeout(() => {
+            maybePromptNotificationPermission().catch(() => {
                 // ignore
             });
-        }
+        }, 700);
         toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
     } catch (error) {
@@ -1091,6 +1246,7 @@ async function logout() {
     clearProfileAvatarPreviewUrl();
     clearSelectedAttachmentPreviewUrl();
     state.pushEnabled = false;
+    state.notificationPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
     state.pendingCallChatId = null;
 
     setAuthMode(false);
@@ -1509,6 +1665,22 @@ function getRecordingMimeType(kind) {
     return "";
 }
 
+function getRecordingOptions(kind) {
+    const mimeType = getRecordingMimeType(kind);
+    if (kind === "video") {
+        return {
+            ...(mimeType ? { mimeType } : {}),
+            audioBitsPerSecond: 32000,
+            videoBitsPerSecond: 420000,
+        };
+    }
+
+    return {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 24000,
+    };
+}
+
 function updateRecordingButtons() {
     const isVoiceRecording = state.recording.kind === "audio";
     const isVideoRecording = state.recording.kind === "video";
@@ -1613,22 +1785,33 @@ async function startRecording(kind) {
         const stream = await navigator.mediaDevices.getUserMedia(
             kind === "video"
                 ? {
-                    audio: true,
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1,
+                    },
                     video: {
                         facingMode: "user",
                         width: { ideal: 480 },
                         height: { ideal: 640 },
+                        frameRate: { ideal: 20, max: 24 },
                     },
                 }
                 : {
-                    audio: true,
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1,
+                    },
                     video: false,
                 }
         );
 
-        const mimeType = getRecordingMimeType(kind);
-        const recorder = mimeType
-            ? new MediaRecorder(stream, { mimeType })
+        const recordingOptions = getRecordingOptions(kind);
+        const recorder = Object.keys(recordingOptions).length
+            ? new MediaRecorder(stream, recordingOptions)
             : new MediaRecorder(stream);
 
         state.recording.chatId = state.currentChatId;
@@ -1639,7 +1822,7 @@ async function startRecording(kind) {
         state.recording.startedAt = Date.now();
         state.recording.durationMs = 0;
         state.recording.isSending = false;
-        state.recording.mimeType = mimeType || recorder.mimeType || "";
+        state.recording.mimeType = recordingOptions.mimeType || recorder.mimeType || "";
         state.recording.shouldSendAfterStop = false;
         state.recording.cancelled = false;
 
@@ -1863,6 +2046,72 @@ function renderSelectedImage() {
 
 function renderEmojiPanel() {
     dom.emojiPanel.innerHTML = EMOJIS.map((emoji) => `<button type="button" data-emoji="${emoji}">${emoji}</button>`).join("");
+}
+
+function pauseOtherVoiceNotes(exceptAudio = null) {
+    const players = dom.messages.querySelectorAll("[data-audio-player] audio");
+    for (const audio of players) {
+        if (exceptAudio && audio === exceptAudio) continue;
+        audio.pause();
+    }
+}
+
+function syncVoiceNotePlayer(player) {
+    if (!player) return;
+
+    const audio = player.querySelector("audio");
+    const icon = player.querySelector("[data-audio-icon]");
+    const time = player.querySelector("[data-audio-time]");
+    const progress = player.querySelector("[data-audio-progress]");
+    if (!audio || !icon || !time || !progress) return;
+
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const current = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    const ratio = duration > 0 ? Math.min(current / duration, 1) : 0;
+
+    icon.textContent = audio.paused ? "▶" : "❚❚";
+    time.textContent = audio.paused && current <= 0
+        ? formatMediaTime(duration)
+        : `${formatMediaTime(current)} / ${formatMediaTime(duration)}`;
+    progress.style.width = `${ratio * 100}%`;
+    player.classList.toggle("playing", !audio.paused);
+    player.classList.toggle("loading", audio.readyState < 3 && !audio.paused);
+}
+
+function handleVoiceNoteToggle(event) {
+    const button = event.target.closest("[data-audio-toggle]");
+    if (!button) return;
+
+    const player = button.closest("[data-audio-player]");
+    const audio = player?.querySelector("audio");
+    if (!audio) return;
+
+    if (audio.paused) {
+        pauseOtherVoiceNotes(audio);
+        if (audio.readyState === 0) {
+            audio.load();
+        }
+        safePlayMediaElement(audio);
+    } else {
+        audio.pause();
+    }
+
+    syncVoiceNotePlayer(player);
+}
+
+function handleVoiceNoteMediaEvent(event) {
+    const audio = event.target.closest?.("audio");
+    if (!audio) return;
+    const player = audio.closest("[data-audio-player]");
+    if (!player) return;
+
+    if (event.type === "play") {
+        pauseOtherVoiceNotes(audio);
+    }
+    if (event.type === "ended") {
+        audio.currentTime = 0;
+    }
+    syncVoiceNotePlayer(player);
 }
 
 function attachTyping() {
@@ -2108,9 +2357,15 @@ function createRemoteTile(userId) {
     avatar.className = "remote-avatar-fallback";
     avatar.alt = "avatar";
 
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.className = "remote-audio";
+
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
+    video.muted = true;
     video.classList.add("hidden");
 
     const meta = document.createElement("div");
@@ -2121,13 +2376,14 @@ function createRemoteTile(userId) {
 
     shell.appendChild(avatar);
     shell.appendChild(video);
+    tile.appendChild(audio);
     meta.appendChild(name);
     meta.appendChild(hint);
     tile.appendChild(shell);
     tile.appendChild(meta);
     dom.remoteVideos.appendChild(tile);
 
-    return { tile, shell, avatar, video, meta, name, hint };
+    return { tile, shell, avatar, audio, video, meta, name, hint };
 }
 
 function updateRemoteTileMedia(userId) {
@@ -2137,11 +2393,13 @@ function updateRemoteTileMedia(userId) {
     const user = callState.participants.get(userId);
     const avatarUrl = assetUrl(user?.avatarUrl || defaultAvatar(user?.username || `user_${userId}`));
     const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
+    const hasAudio = peer.remoteStream.getAudioTracks().length > 0;
 
     peer.avatar.src = avatarUrl;
     peer.video.classList.toggle("hidden", !hasVideo);
     peer.avatar.classList.toggle("hidden", hasVideo);
     peer.tile.classList.toggle("has-video", hasVideo);
+    peer.tile.classList.toggle("has-audio", hasAudio);
 }
 
 function updateRemoteTileLabel(userId) {
@@ -2156,7 +2414,13 @@ function updateRemoteTileLabel(userId) {
     }
 
     peer.name.textContent = `@${user.username || `user_${userId}`}`;
-    peer.hint.textContent = peer.remoteStream.getVideoTracks().length > 0 ? "Камера включена" : "Аудиозвонок";
+    const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
+    const hasAudio = peer.remoteStream.getAudioTracks().length > 0;
+    peer.hint.textContent = hasVideo
+        ? "Видео и звук"
+        : hasAudio
+            ? "Голосовой звонок"
+            : "Подключение...";
 }
 
 function refreshCallUi() {
@@ -2190,6 +2454,12 @@ function removePeer(userId) {
         peer.pc.ontrack = null;
         peer.pc.onicecandidate = null;
         peer.pc.onconnectionstatechange = null;
+        if (peer.audio) {
+            peer.audio.srcObject = null;
+        }
+        if (peer.video) {
+            peer.video.srcObject = null;
+        }
         peer.pc.close();
     } catch {
         // ignore
@@ -2260,7 +2530,12 @@ async function ensureLocalStream(mode) {
 
         if (!getLocalAudioTrack()) {
             await addLocalTrackFromConstraints("audio", {
-                audio: true,
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    channelCount: 1,
+                },
                 video: false,
             });
         }
@@ -2270,6 +2545,9 @@ async function ensureLocalStream(mode) {
                 audio: false,
                 video: {
                     facingMode: "user",
+                    width: { ideal: 640 },
+                    height: { ideal: 360 },
+                    frameRate: { ideal: 24, max: 30 },
                 },
             });
         }
@@ -2304,6 +2582,8 @@ async function ensurePeer(userId) {
 
     const { tile, shell, avatar, video, meta, name, hint } = createRemoteTile(userId);
     const remoteStream = new MediaStream();
+    const audio = tile.querySelector(".remote-audio");
+    audio.srcObject = remoteStream;
     video.srcObject = remoteStream;
 
     const pc = new RTCPeerConnection(rtcConfig);
@@ -2323,14 +2603,26 @@ async function ensurePeer(userId) {
     };
 
     pc.ontrack = (event) => {
-        const [stream] = event.streams;
-        if (!stream) return;
-        for (const track of stream.getTracks()) {
+        const tracks = event.streams?.length ? event.streams[0].getTracks() : [event.track];
+        for (const track of tracks) {
+            if (!track) continue;
             const exists = remoteStream.getTracks().some((current) => current.id === track.id);
             if (!exists) {
                 remoteStream.addTrack(track);
             }
+            track.onunmute = () => {
+                safePlayMediaElement(audio);
+                safePlayMediaElement(video);
+                updateRemoteTileMedia(userId);
+                updateRemoteTileLabel(userId);
+            };
+            track.onended = () => {
+                updateRemoteTileMedia(userId);
+                updateRemoteTileLabel(userId);
+            };
         }
+        safePlayMediaElement(audio);
+        safePlayMediaElement(video);
         updateRemoteTileMedia(userId);
         updateRemoteTileLabel(userId);
     };
@@ -2353,12 +2645,22 @@ async function ensurePeer(userId) {
         }
     };
 
+    pc.onnegotiationneeded = () => {
+        if (!callState.active || !callState.chatId) return;
+        setTimeout(() => {
+            createOfferFor(userId).catch(() => {
+                // ignore
+            });
+        }, 0);
+    };
+
     const peer = {
         pc,
         remoteStream,
         tile,
         shell,
         avatar,
+        audio,
         video,
         meta,
         name,
@@ -2393,6 +2695,12 @@ async function createOfferFor(userId) {
         });
     } catch (error) {
         console.error(error);
+    }
+}
+
+async function renegotiateAllPeers() {
+    for (const userId of Array.from(callState.peers.keys())) {
+        await createOfferFor(userId);
     }
 }
 
@@ -2579,6 +2887,7 @@ async function toggleCamera() {
             videoTrack.enabled = true;
             callState.cameraEnabled = true;
             await syncAllPeerTracks();
+            await renegotiateAllPeers();
             setRoomCallMode("video");
         } else {
             if (videoTrack) {
@@ -2586,6 +2895,7 @@ async function toggleCamera() {
             }
             callState.cameraEnabled = false;
             await syncAllPeerTracks();
+            await renegotiateAllPeers();
             setRoomCallMode("audio");
         }
 
@@ -2721,6 +3031,7 @@ function connectSocket() {
         if (state.me) {
             state.onlineUsers.set(state.me.id, true);
             renderProfile();
+            renderChats();
         }
         if (state.currentChatId) {
             socket.emit("chat:join", { chatId: state.currentChatId });
@@ -2742,14 +3053,23 @@ function connectSocket() {
         if (state.me) {
             state.onlineUsers.delete(state.me.id);
             renderProfile();
+            renderChats();
         }
     });
 
-    socket.on("ready", ({ userId }) => {
-        const id = Number(userId);
-        if (id) {
-            state.onlineUsers.set(id, true);
-            renderProfile();
+    socket.on("ready", ({ userId, onlineUserIds = [] }) => {
+        state.onlineUsers.clear();
+        for (const onlineUserId of onlineUserIds) {
+            const numericId = Number(onlineUserId);
+            if (numericId) {
+                state.onlineUsers.set(numericId, true);
+            }
+        }
+        renderProfile();
+        renderChats();
+        if (state.currentChat) {
+            renderMembers();
+            renderChatHeader();
         }
     });
 
@@ -2764,8 +3084,10 @@ function connectSocket() {
         }
 
         renderProfile();
+        renderChats();
         if (state.currentChat) {
             renderMembers();
+            renderChatHeader();
         }
     });
 
@@ -2820,22 +3142,26 @@ function connectSocket() {
         const chatId = Number(payload.chatId);
         if (!chatId) return;
         const targetChat = state.chats.find((chat) => chat.id === chatId);
+        const actorUserId = Number(payload.actorUserId || 0);
+        const callMode = payload.mode === "video" ? "video" : "audio";
 
         if (payload.active) {
             state.callStatusByChat.set(chatId, {
                 active: true,
-                mode: payload.mode === "video" ? "video" : "audio",
+                mode: callMode,
                 participantsCount: Number(payload.participantsCount || 0),
             });
 
             if (
-                targetChat?.type === "private" &&
+                actorUserId &&
+                actorUserId !== Number(state.me?.id) &&
                 state.currentChatId !== chatId &&
-                !callState.active &&
-                document.visibilityState !== "visible"
+                !callState.active
             ) {
-                notifyBrowser("Входящий звонок", {
-                    body: `${getCallChatName(chatId)} звонит вам`,
+                notifyBrowser(targetChat?.type === "group" ? "Новый эфир в группе" : "Входящий звонок", {
+                    body: targetChat?.type === "group"
+                        ? `${getCallChatName(chatId)}: начался ${callMode === "video" ? "видеочат" : "голосовой чат"}`
+                        : `${getCallChatName(chatId)} звонит вам`,
                     requireInteraction: true,
                     tag: `call-${chatId}`,
                     data: { url: `/?chat=${chatId}&call=1` },
@@ -2846,7 +3172,7 @@ function connectSocket() {
         }
 
         if (callState.active && callState.chatId === chatId && payload.active) {
-            callState.mode = payload.mode === "video" ? "video" : "audio";
+            callState.mode = callMode;
             refreshCallUi();
         }
 
@@ -2866,6 +3192,7 @@ function connectSocket() {
         if (state.currentChatId === chatId) {
             renderChatHeader();
         }
+        renderChats();
     });
 
     socket.on("call:ended", ({ chatId }) => {
@@ -2881,6 +3208,7 @@ function connectSocket() {
         if (state.currentChatId === id) {
             renderChatHeader();
         }
+        renderChats();
     });
 
     socket.on("call:joined", async (payload) => {
@@ -2908,6 +3236,7 @@ function connectSocket() {
         if (state.currentChatId === id) {
             renderChatHeader();
         }
+        renderChats();
 
         if (state.me.id < userId) {
             await createOfferFor(userId);
@@ -2933,6 +3262,7 @@ function connectSocket() {
         if (state.currentChatId === id) {
             renderChatHeader();
         }
+        renderChats();
     });
 
     socket.on("call:error", ({ message }) => {
@@ -3007,6 +3337,10 @@ function bindUi() {
     });
 
     dom.composer.addEventListener("submit", sendMessage);
+    dom.messages.addEventListener("click", handleVoiceNoteToggle);
+    for (const eventName of ["loadedmetadata", "timeupdate", "play", "pause", "ended", "waiting", "canplay"]) {
+        dom.messages.addEventListener(eventName, handleVoiceNoteMediaEvent, true);
+    }
 
     dom.imageInput.addEventListener("change", () => {
         const file = dom.imageInput.files?.[0];
@@ -3177,11 +3511,14 @@ async function init() {
     connectSocket();
     try {
         await loadChats();
-        if ("Notification" in window && Notification.permission === "granted") {
-            await syncPushSubscription().catch(() => {
+        await syncPushSubscription().catch(() => {
+            // ignore
+        });
+        setTimeout(() => {
+            maybePromptNotificationPermission().catch(() => {
                 // ignore
             });
-        }
+        }, 700);
 
         const params = new URLSearchParams(window.location.search);
         const chatIdFromUrl = Number(params.get("chat") || 0);

@@ -55,9 +55,11 @@ npm start
 - `DATABASE_URL` = строка подключения к PostgreSQL
 - `APP_BASE_URL` = `https://your-app-name.onrender.com`
 - `AUTO_JOIN_DEFAULT_CHATS` = `false`
+- `SEED_DEMO_DATA` = `false`
 - `VAPID_PUBLIC_KEY` = публичный ключ для web push
 - `VAPID_PRIVATE_KEY` = приватный ключ для web push
 - `VAPID_SUBJECT` = например `mailto:admin@example.com`
+- `ICE_SERVERS_JSON` = JSON-массив STUN/TURN-серверов для WebRTC-звонков
 
 `CORS_ORIGINS` для одного домена не нужен. Оставьте пустым.
 
@@ -115,6 +117,8 @@ npm start
 - `APP_BASE_URL` - адрес вашего приложения
 - `CORS_ORIGINS` - пусто для single-host deploy
 - `AUTO_JOIN_DEFAULT_CHATS` - `false`
+- `SEED_DEMO_DATA` - `false`
+- `ICE_SERVERS_JSON` - опционально, для стабильных звонков через TURN
 
 ## Push и PWA
 
@@ -148,6 +152,13 @@ npx web-push generate-vapid-keys
 Для реального продакшена используйте:
 - `PostgreSQL`
 - object storage для файлов, если захотите хранить медиа вне диска сервера
+
+Демо-аккаунты и тестовые чаты по умолчанию больше не создаются.
+Если нужен локальный seed-режим для разработки, можно явно включить:
+
+```txt
+SEED_DEMO_DATA=true
+```
 
 ## Файлы Для Single-Host Deploy
 

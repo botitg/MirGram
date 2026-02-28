@@ -21,6 +21,7 @@ try {
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'mirnachat-online-secret-change-me';
 const AUTO_JOIN_DEFAULT_CHATS = ['1', 'true', 'yes', 'on'].includes(String(process.env.AUTO_JOIN_DEFAULT_CHATS || '').trim().toLowerCase());
+const SEED_DEMO_DATA = ['1', 'true', 'yes', 'on'].includes(String(process.env.SEED_DEMO_DATA || '').trim().toLowerCase());
 const APP_BASE_URL = String(process.env.APP_BASE_URL || '')
     .trim()
     .replace(/\/+$/, '');
@@ -130,6 +131,46 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+function hashSeed(value) {
+    let hash = 0;
+    const input = String(value || 'mirx');
+    for (let index = 0; index < input.length; index += 1) {
+        hash = ((hash << 5) - hash) + input.charCodeAt(index);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+function buildDefaultAvatar(seed = 'MIRX') {
+    const normalized = String(seed || 'MIRX').trim() || 'MIRX';
+    const symbols = Array.from(normalized.matchAll(/[\p{L}\p{N}]/gu)).map((item) => item[0]);
+    const initials = (symbols.slice(0, 2).join('') || 'MX').toUpperCase();
+    const palettes = [
+        ['#0f2744', '#143d66'],
+        ['#1b3045', '#27507a'],
+        ['#2a2438', '#4d3f75'],
+        ['#0f3a3a', '#156a66'],
+        ['#3b2a19', '#8a632d'],
+        ['#2c1f34', '#7f3d80'],
+    ];
+    const palette = palettes[hashSeed(normalized) % palettes.length];
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+            <defs>
+                <linearGradient id="g" x1="8" y1="8" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="${palette[0]}"/>
+                    <stop offset="1" stop-color="${palette[1]}"/>
+                </linearGradient>
+            </defs>
+            <rect width="96" height="96" rx="28" fill="url(#g)"/>
+            <circle cx="78" cy="18" r="10" fill="rgba(244,207,131,0.22)"/>
+            <path d="M18 72C28 57 40 50 54 50C68 50 77 58 82 72" stroke="rgba(255,255,255,0.18)" stroke-width="4" stroke-linecap="round"/>
+            <text x="48" y="56" text-anchor="middle" font-size="32" font-family="Segoe UI, Arial, sans-serif" font-weight="700" fill="#f5f7fb">${initials}</text>
+        </svg>
+    `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
 function toPublicUrl(value) {
     const input = String(value || '').trim();
     if (!input) return null;
@@ -224,6 +265,30 @@ async function chatParticipantIds(chatId, { excludeUserId = null } = {}) {
 
     const rows = await db.all(query, params);
     return rows.map((row) => Number(row.userId)).filter(Boolean);
+}
+
+async function onlineUserIdsForUser(userId) {
+    const chatIds = await userChatIds(userId);
+    if (!chatIds.length) {
+        return [Number(userId)];
+    }
+
+    const rows = await db.all(
+        `SELECT DISTINCT user_id AS userId
+         FROM chat_members
+         WHERE chat_id IN (${chatIds.map(() => '?').join(',')})`,
+        chatIds
+    );
+
+    const ids = rows
+        .map((row) => Number(row.userId))
+        .filter((id) => id && isUserOnline(id));
+
+    if (!ids.includes(Number(userId))) {
+        ids.push(Number(userId));
+    }
+
+    return ids;
 }
 
 function isUserOnline(userId) {
@@ -379,19 +444,35 @@ async function notifyChatMessage(chatId, senderUserId, message) {
     });
 }
 
-async function notifyPrivateCall(chatId, callerUserId, callerUsername) {
+async function notifyChatCall(chatId, callerUserId, callerUsername, mode = 'audio') {
     const recipients = await chatParticipantIds(chatId, { excludeUserId: callerUserId });
     if (!recipients.length) return;
 
+    const chat = await db.get(
+        `SELECT id, name, type
+         FROM chats
+         WHERE id = ?`,
+        [chatId]
+    );
+
+    const isVideo = mode === 'video';
+    const title = chat?.type === 'private'
+        ? `Входящий ${isVideo ? 'видеозвонок' : 'звонок'} от @${callerUsername}`
+        : `${chat?.name || 'Группа'}: начался ${isVideo ? 'видеочат' : 'голосовой чат'}`;
+    const body = chat?.type === 'private'
+        ? 'Откройте MIRX, чтобы ответить на звонок.'
+        : `@${callerUsername} запустил(а) ${isVideo ? 'видеочат' : 'голосовой чат'}.`;
+
     await sendPushToUsers(recipients, {
-        title: `Входящий звонок от @${callerUsername}`,
-        body: 'Откройте MIRX, чтобы ответить на звонок.',
+        title,
+        body,
         tag: `call-${chatId}`,
         url: `/?chat=${chatId}&call=1`,
         icon: '/assets/icon.png',
         requireInteraction: true,
         kind: 'call',
         chatId,
+        mode: isVideo ? 'video' : 'audio',
     });
 }
 
@@ -423,6 +504,73 @@ function canManageMembers(role) {
     return role === 'owner' || role === 'admin';
 }
 
+function normalizeApiError(error) {
+    if (typeof error?.code === 'number' && Number.isFinite(error.code)) {
+        return {
+            status: error.code,
+            message: error.message || 'Server error',
+        };
+    }
+
+    const code = String(error?.code || '').trim();
+    const constraint = String(error?.constraint || '').trim();
+    const message = String(error?.message || '').trim();
+    const lowerMessage = message.toLowerCase();
+    const lowerConstraint = constraint.toLowerCase();
+
+    if (
+        code === '23505' ||
+        lowerMessage.includes('unique constraint failed') ||
+        lowerMessage.includes('duplicate key value violates unique constraint')
+    ) {
+        if (
+            lowerMessage.includes('users.username') ||
+            lowerMessage.includes('users.username_key') ||
+            lowerConstraint.includes('idx_username') ||
+            lowerConstraint.includes('username')
+        ) {
+            return { status: 409, message: 'Ник уже занят.' };
+        }
+
+        if (
+            lowerMessage.includes('chat_members') ||
+            lowerConstraint.includes('chat_members')
+        ) {
+            return { status: 409, message: 'Пользователь уже состоит в чате.' };
+        }
+
+        if (
+            lowerMessage.includes('notification_subscriptions') ||
+            lowerConstraint.includes('notification')
+        ) {
+            return { status: 409, message: 'Подписка уже сохранена.' };
+        }
+
+        return { status: 409, message: 'Такая запись уже существует.' };
+    }
+
+    if (
+        code === '23503' ||
+        lowerMessage.includes('foreign key constraint failed') ||
+        lowerMessage.includes('violates foreign key constraint')
+    ) {
+        return { status: 400, message: 'Связанный объект не найден.' };
+    }
+
+    if (code === 'SQLITE_BUSY' || code === '55P03') {
+        return { status: 503, message: 'База данных временно занята. Повторите попытку.' };
+    }
+
+    if (code === 'SQLITE_CANTOPEN') {
+        return { status: 500, message: 'Не удалось открыть базу данных.' };
+    }
+
+    return {
+        status: 500,
+        message: message || 'Server error',
+    };
+}
+
 function assert(condition, message, code = 400) {
     if (!condition) {
         const error = new Error(message);
@@ -436,8 +584,9 @@ function withApi(handler) {
         try {
             await handler(req, res);
         } catch (error) {
-            const status = error.code || 500;
-            res.status(status).json({ error: error.message || 'Server error' });
+            const normalized = normalizeApiError(error);
+            console.error('[api]', req.method, req.originalUrl, error);
+            res.status(normalized.status).json({ error: normalized.message });
         }
     };
 }
@@ -448,7 +597,14 @@ async function authMiddleware(req, res, next) {
         const token = header.startsWith('Bearer ') ? header.slice(7) : null;
         assert(token, 'Требуется авторизация.', 401);
 
-        const payload = jwt.verify(token, JWT_SECRET);
+        let payload;
+        try {
+            payload = jwt.verify(token, JWT_SECRET);
+        } catch {
+            res.status(401).json({ error: 'Недействительный токен.' });
+            return;
+        }
+
         const user = await db.get(
             `SELECT id, username, avatar_url AS avatarUrl, bio, created_at AS createdAt
              FROM users
@@ -456,11 +612,14 @@ async function authMiddleware(req, res, next) {
             [payload.userId]
         );
 
-        assert(user, 'Пользователь не найден.', 401);
+        if (!user) {
+            res.status(401).json({ error: 'Пользователь не найден.' });
+            return;
+        }
         req.user = user;
         next();
     } catch (error) {
-        res.status(401).json({ error: 'Недействительный токен.' });
+        next(error);
     }
 }
 
@@ -648,13 +807,22 @@ async function initializeDatabase() {
         }
     }
 
-    const existingUsersForMigration = await db.all(`SELECT id, username, username_key AS usernameKey FROM users`);
+    const existingUsersForMigration = await db.all(`
+        SELECT id, username, username_key AS usernameKey, avatar_url AS avatarUrl
+        FROM users
+    `);
     for (const user of existingUsersForMigration) {
         const normalizedKey = normalizeUsernameKey(user.username);
-        if (!user.usernameKey || user.usernameKey !== normalizedKey) {
+        const nextAvatarUrl = String(user.avatarUrl || '').includes('api.dicebear.com')
+            ? buildDefaultAvatar(user.username)
+            : user.avatarUrl;
+
+        if (!user.usernameKey || user.usernameKey !== normalizedKey || nextAvatarUrl !== user.avatarUrl) {
             await db.run(
-                `UPDATE users SET username_key = ? WHERE id = ?`,
-                [normalizedKey, user.id]
+                `UPDATE users
+                 SET username_key = ?, avatar_url = ?
+                 WHERE id = ?`,
+                [normalizedKey, nextAvatarUrl, user.id]
             );
         }
     }
@@ -662,7 +830,7 @@ async function initializeDatabase() {
     await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);`);
 
     const existingUsers = await db.get('SELECT COUNT(*) AS total FROM users');
-    if ((existingUsers?.total || 0) > 0) {
+    if ((existingUsers?.total || 0) > 0 || !SEED_DEMO_DATA) {
         return;
     }
 
@@ -676,7 +844,7 @@ async function initializeDatabase() {
                 username,
                 normalizeUsernameKey(username),
                 passwordHash,
-                `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(username)}`,
+                buildDefaultAvatar(username),
                 '',
                 nowIso(),
             ]
@@ -718,6 +886,9 @@ app.get('/api/health', (_, res) => {
         time: nowIso(),
         database: db?.dialect || 'sqlite',
         pushEnabled,
+        appBaseUrlSet: Boolean(APP_BASE_URL),
+        autoJoinDefaultChats: AUTO_JOIN_DEFAULT_CHATS,
+        seedDemoData: SEED_DEMO_DATA,
     });
 });
 
@@ -736,7 +907,7 @@ app.post(
         assert(!exists, 'Ник уже занят.', 409);
 
         const passwordHash = await bcrypt.hash(password, 10);
-        const avatarUrl = `https://api.dicebear.com/8.x/thumbs/svg?seed=${encodeURIComponent(username)}`;
+        const avatarUrl = buildDefaultAvatar(username);
 
         const result = await db.run(
             `INSERT INTO users (username, username_key, password_hash, avatar_url, bio, created_at)
@@ -1027,6 +1198,7 @@ app.get(
         for (const row of rows) {
             let title = row.name || '';
             let avatarUrl = '';
+            let peerId = null;
 
             if (row.type === 'private') {
                 const peer = await db.get(
@@ -1042,6 +1214,7 @@ app.get(
                     [row.id, req.user.id]
                 );
                 if (peer) {
+                    peerId = peer.id;
                     title = peer.groupNick || peer.username;
                     avatarUrl = peer.groupAvatarUrl || peer.avatarUrl;
                 }
@@ -1060,6 +1233,7 @@ app.get(
                 name: title,
                 rawName: row.name,
                 avatarUrl,
+                peerId,
                 type: row.type,
                 ownerId: row.ownerId,
                 createdAt: row.createdAt,
@@ -1638,6 +1812,7 @@ async function leaveCall(chatId, userId) {
         active: true,
         mode: call.mode,
         participantsCount: call.participants.size,
+        actorUserId: userId,
     });
 }
 
@@ -1675,6 +1850,7 @@ io.on('connection', async (socket) => {
 
     socket.emit('ready', {
         userId,
+        onlineUserIds: await onlineUserIdsForUser(userId),
     });
 
     socket.on('chat:join', async ({ chatId }) => {
@@ -1708,10 +1884,6 @@ io.on('connection', async (socket) => {
             const id = Number(chatId);
             const callMode = mode === 'video' ? 'video' : 'audio';
             const membership = await validateSocketMembership(socket, id);
-            if (membership.chatType !== 'private') {
-                socket.emit('call:error', { message: 'Звонки доступны только в личных чатах.' });
-                return;
-            }
 
             if (!membership.canStartCalls) {
                 socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
@@ -1753,8 +1925,9 @@ io.on('connection', async (socket) => {
                 active: true,
                 mode: call.mode,
                 participantsCount: call.participants.size,
+                actorUserId: userId,
             });
-            await notifyPrivateCall(id, socket.user.id, socket.user.username);
+            await notifyChatCall(id, socket.user.id, socket.user.username, call.mode);
         } catch {
             socket.emit('call:error', { message: 'Не удалось начать звонок.' });
         }
@@ -1764,10 +1937,6 @@ io.on('connection', async (socket) => {
         try {
             const id = Number(chatId);
             const membership = await validateSocketMembership(socket, id);
-            if (membership.chatType !== 'private') {
-                socket.emit('call:error', { message: 'Звонки доступны только в личных чатах.' });
-                return;
-            }
             if (!membership.canStartCalls) {
                 socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
                 return;
@@ -1804,6 +1973,7 @@ io.on('connection', async (socket) => {
                 active: true,
                 mode: call.mode,
                 participantsCount: call.participants.size,
+                actorUserId: userId,
             });
         } catch {
             socket.emit('call:error', { message: 'Не удалось подключиться к звонку.' });
@@ -1830,6 +2000,7 @@ io.on('connection', async (socket) => {
             active: true,
             mode: call.mode,
             participantsCount: call.participants.size,
+            actorUserId: userId,
         });
     });
 
@@ -1900,7 +2071,7 @@ app.get('*', (_, res) => {
 async function start() {
     await initializeDatabase();
     server.listen(PORT, () => {
-        console.log(`🎮 MIRX - Messenger для Мирнастана работает на http://localhost:${PORT}`);
+        console.log(`[mirx] server listening on http://localhost:${PORT} (db=${db?.dialect || 'sqlite'})`);
     });
 }
 
