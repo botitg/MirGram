@@ -61,8 +61,14 @@ MEDIA_FOLDER_PREFIX=mirx
 Создайте PostgreSQL и вставьте строку подключения в:
 
 ```env
-DATABASE_URL=postgresql://user:password@host:5432/database
+DATABASE_URL=postgresql://postgres.project-ref:password@aws-0-region.pooler.supabase.com:5432/postgres
 ```
+
+Важно для Render:
+
+- не используйте direct URL вида `db.<project-ref>.supabase.co:5432`
+- берите строку только из `Supabase Dashboard -> Connect -> Session pooler`
+- direct URL у Supabase часто приводит к `ENETUNREACH`, потому что это IPv6-путь
 
 ### 2. Создайте Storage bucket в Supabase
 
@@ -85,7 +91,7 @@ DATABASE_URL=postgresql://user:password@host:5432/database
 
 ```env
 JWT_SECRET=your-long-random-secret
-DATABASE_URL=postgresql://user:password@host:5432/database
+DATABASE_URL=postgresql://postgres.project-ref:password@aws-0-region.pooler.supabase.com:5432/postgres
 REQUIRE_PERSISTENT_DB=true
 APP_BASE_URL=https://your-service.onrender.com
 CORS_ORIGINS=
@@ -150,7 +156,7 @@ https://YOUR_DOMAIN/api/health
 
 Проверьте:
 
-1. заполнен ли `DATABASE_URL`
+1. используется ли `Session pooler` URL в `DATABASE_URL`, а не direct `db.<project>.supabase.co`
 2. создан ли bucket `mirx-media`
 3. заполнены ли `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY`
 4. совпадает ли `APP_BASE_URL` с реальным доменом

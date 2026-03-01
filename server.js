@@ -1073,6 +1073,8 @@ async function initializeDatabase() {
         await db.exec(`
             ALTER TABLE users ADD COLUMN IF NOT EXISTS username_key TEXT;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+            ALTER TABLE users ALTER COLUMN avatar_url DROP NOT NULL;
+            ALTER TABLE users ALTER COLUMN avatar_url SET DEFAULT '';
             ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
             ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TEXT;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);
@@ -1132,17 +1134,24 @@ async function initializeDatabase() {
         }
     }
 
+    await db.run(
+        `UPDATE users
+         SET avatar_url = ''
+         WHERE avatar_url IS NULL`
+    );
+
     const existingUsersForMigration = await db.all(`
-        SELECT id, username, username_key AS usernameKey, avatar_url AS avatarUrl
+        SELECT id, username, username_key AS "usernameKey", avatar_url AS "avatarUrl"
         FROM users
     `);
     for (const user of existingUsersForMigration) {
         const normalizedKey = normalizeUsernameKey(user.username);
-        const nextAvatarUrl = String(user.avatarUrl || '').includes('api.dicebear.com')
+        const currentAvatarUrl = String(user.avatarUrl || '').trim();
+        const nextAvatarUrl = !currentAvatarUrl || currentAvatarUrl.includes('api.dicebear.com')
             ? buildDefaultAvatar(user.username)
-            : user.avatarUrl;
+            : currentAvatarUrl;
 
-        if (!user.usernameKey || user.usernameKey !== normalizedKey || nextAvatarUrl !== user.avatarUrl) {
+        if (!user.usernameKey || user.usernameKey !== normalizedKey || nextAvatarUrl !== currentAvatarUrl) {
             await db.run(
                 `UPDATE users
                  SET username_key = ?, avatar_url = ?
@@ -1150,6 +1159,12 @@ async function initializeDatabase() {
                 [normalizedKey, nextAvatarUrl, user.id]
             );
         }
+    }
+
+    if (db.dialect === 'postgres') {
+        await db.exec(`
+            ALTER TABLE users ALTER COLUMN avatar_url SET NOT NULL;
+        `);
     }
 
     await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);`);

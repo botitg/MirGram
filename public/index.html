@@ -12,64 +12,19 @@
     <div id="toasts" class="toasts"></div>
 
         <section id="authScreen" class="screen auth-screen">
-        <div class="auth-shell">
-            <aside class="auth-showcase">
-                <div class="auth-scene-frame">
-                    <canvas id="authSceneCanvas" class="auth-scene-canvas" aria-hidden="true"></canvas>
-                    <div class="auth-scene-grid" aria-hidden="true"></div>
+        <div class="auth-scene-frame auth-scene-frame-ambient">
+            <canvas id="authSceneCanvas" class="auth-scene-canvas" aria-hidden="true"></canvas>
+            <div class="auth-scene-grid" aria-hidden="true"></div>
+        </div>
 
-                    <div class="auth-scene-overlay">
-                        <div class="auth-showcase-badge">three.js secure scene</div>
-                        <div class="auth-signal"><span></span> protected realtime access</div>
-                        <h1>MIRX</h1>
-                        <p>Минималистичный вход в мессенджер с живыми чатами, звонками и медиа, где аккаунты хранятся в постоянной базе, а файлы можно уводить в Cloudinary.</p>
-                    </div>
-
-                    <article class="auth-float-card auth-float-card-top">
-                        <strong>Single host</strong>
-                        <span>Один деплой, один домен, <code>npm start</code> для всего приложения.</span>
-                    </article>
-
-                    <article class="auth-float-card auth-float-card-bottom">
-                        <strong>Cloud media</strong>
-                        <span>Аватары, фото, голосовые и видео не теряются после рестартов.</span>
-                    </article>
-                </div>
-
-                <div class="auth-showcase-grid">
-                    <article class="showcase-card">
-                        <strong>Realtime</strong>
-                        <span>Группы, личные чаты, звонки и уведомления без перезагрузки страницы.</span>
-                    </article>
-                    <article class="showcase-card">
-                        <strong>Private sign-in</strong>
-                        <span>На телефонах больше не должно быть молчаливого входа в чужую сессию.</span>
-                    </article>
-                    <article class="showcase-card">
-                        <strong>Cloudinary ready</strong>
-                        <span>Медиа можно вынести с диска сервера в постоянное внешнее хранилище.</span>
-                    </article>
-                    <article class="showcase-card">
-                        <strong>Minimal UI</strong>
-                        <span>Чистый экран входа без визуального мусора, с акцентом на форму и статус доступа.</span>
-                    </article>
-                </div>
-            </aside>
-
-            <div class="auth-card">
-                <div class="auth-card-topline">Protected access</div>
-
+        <div class="auth-shell auth-shell-minimal">
+            <div class="auth-card auth-card-minimal">
                 <div class="brand">
                     <img src="/assets/icon.png" alt="MIRX" />
                     <div>
                         <h1>MIRX</h1>
-                        <p>Безопасный вход по нику и паролю</p>
+                        <p>Вход по нику и паролю</p>
                     </div>
-                </div>
-
-                <div class="auth-card-copy">
-                    <h2>Войдите или создайте аккаунт</h2>
-                    <p>Минимум полей на входе. Профиль, аватар и остальные настройки редактируются уже внутри приложения.</p>
                 </div>
 
                 <section id="resumeSessionCard" class="resume-session hidden">
@@ -99,14 +54,13 @@
                 <form id="loginForm" class="auth-form active">
                     <label>
                         Ник
-                        <input name="username" type="text" required minlength="3" maxlength="24" placeholder="Например: Мирослав_01" />
+                        <input name="username" type="text" required minlength="3" maxlength="24" placeholder="Например: Mirx_User" />
                     </label>
                     <label>
                         Пароль
                         <input name="password" type="password" required minlength="6" placeholder="Введите пароль" />
                     </label>
                     <button type="submit" class="btn primary auth-submit">Войти в MIRX</button>
-                    <p class="hint">На телефонах сессия не должна автоматически подхватывать чужой аккаунт после закрытия страницы.</p>
                 </form>
 
                 <form id="registerForm" class="auth-form">
@@ -118,20 +72,21 @@
                         Пароль
                         <input name="password" type="password" required minlength="6" placeholder="Минимум 6 символов" />
                     </label>
+                    <label class="policy-check">
+                        <input id="registerPrivacy" name="privacyAccepted" type="checkbox" required />
+                        <span>Я принимаю политику конфиденциальности</span>
+                    </label>
+                    <button id="privacyPolicyBtn" class="policy-link" type="button">Открыть политику конфиденциальности</button>
                     <button type="submit" class="btn primary auth-submit">Создать аккаунт</button>
-                    <p class="hint">Разрешены буквы, цифры, <code>_</code>, <code>.</code> и <code>-</code>.</p>
                 </form>
-
-                <div class="auth-card-foot">
-                    <span class="auth-card-chip">JWT session</span>
-                    <span class="auth-card-chip">Postgres storage</span>
-                    <span class="auth-card-chip">Cloud media ready</span>
-                </div>
             </div>
         </div>
     </section>
 
     <section id="appScreen" class="screen app-screen hidden">
+        <div class="app-scene-layer" aria-hidden="true">
+            <canvas id="appSceneCanvas" class="app-scene-canvas"></canvas>
+        </div>
         <header class="topbar">
             <div class="topbar-left">
                 <button id="mobileChatsToggle" class="bar-btn mobile-only" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє С‡Р°С‚РѕРІ" aria-expanded="false">
@@ -143,13 +98,18 @@
                     <img src="/assets/icon.png" alt="MIRX" />
                     <div>
                         <strong>MIRX</strong>
-                        <small>messenger online</small>
+                        <small>glass messenger</small>
                     </div>
                 </div>
             </div>
-            <div class="topbar-search">
-                <input id="chatSearch" class="search" type="search" placeholder="РџРѕРёСЃРє С‡Р°С‚РѕРІ, Р»СЋРґРµР№ Рё РіСЂСѓРїРї" />
+
+            <div class="topbar-search-wrap">
+                <div class="topbar-search">
+                    <input id="chatSearch" class="search" type="search" placeholder="РџРѕРёСЃРє С‡Р°С‚РѕРІ, Р»СЋРґРµР№, @username Рё СЃС‚РёРєРµСЂРѕРІ" autocomplete="off" />
+                </div>
+                <div id="searchPanel" class="search-panel hidden"></div>
             </div>
+
             <div class="topbar-actions">
                 <button id="profileOpenBtn" class="profile-trigger" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ">
                     <img id="profileOpenAvatar" src="/assets/icon.png" alt="РџСЂРѕС„РёР»СЊ" />
@@ -186,13 +146,13 @@
                     <form id="composer" class="composer">
                         <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="РћС‚РєСЂС‹С‚СЊ СЌРјРѕРґР·Рё">рџЉ</button>
                         <div id="emojiPanel" class="emoji-panel hidden"></div>
-                        <input id="messageInput" type="text" maxlength="4000" placeholder="Р’РІРµРґРёС‚Рµ СЃРѕРѕР±С‰РµРЅРёРµ..." inputmode="text" enterkeyhint="send" autocomplete="off" />
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="РЎРѕРѕР±С‰РµРЅРёРµ" inputmode="text" enterkeyhint="send" autocomplete="off" />
                         <div class="composer-tools">
                             <label class="btn ghost file-btn" aria-label="РџСЂРёРєСЂРµРїРёС‚СЊ С„РѕС‚Рѕ">
                                 рџ“·
                                 <input id="imageInput" type="file" accept="image/*" hidden />
                             </label>
-                            <label class="btn ghost file-btn" aria-label="РЎРѕР·РґР°С‚СЊ СЃС‚РёРєРµСЂ">
+                            <label class="btn ghost file-btn" aria-label="Р”РѕР±Р°РІРёС‚СЊ СЃС‚РёРєРµСЂ">
                                 рџ§©
                                 <input id="stickerInput" type="file" accept="image/*" hidden />
                             </label>
@@ -210,8 +170,11 @@
             </section>
 
             <aside class="panel info-panel">
-                <div class="panel-head">
-                    <h2>РСЃС‚РѕСЂРёСЏ</h2>
+                <div class="panel-head info-panel-head">
+                    <div>
+                        <div class="panel-eyebrow">Telegram-like info</div>
+                        <h2>РџСЂРѕС„РёР»СЊ Рё РёСЃС‚РѕСЂРёСЏ</h2>
+                    </div>
                 </div>
                 <div id="profileBox" class="profile-box"></div>
                 <div id="chatActions" class="chat-actions"></div>
@@ -324,7 +287,7 @@
                         <div class="call-sidebar-card">
                             <div class="call-sidebar-label">Р РµР¶РёРј</div>
                             <strong id="callModeLabel">РђСѓРґРёРѕР·РІРѕРЅРѕРє</strong>
-                            <p id="callHintText" class="hint">Р’РЅСѓС‚СЂРё Р·РІРѕРЅРєР° РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ.</p>
+                            <p id="callHintText" class="hint">Р’Рѕ РІСЂРµРјСЏ Р·РІРѕРЅРєР° РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ Рё РїРµСЂРµР№С‚Рё РІ РІРёРґРµРѕ.</p>
                         </div>
                         <div class="call-sidebar-card">
                             <div class="call-sidebar-label">РЈС‡Р°СЃС‚РЅРёРєРё</div>
@@ -343,6 +306,7 @@
     <script src="/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
     <script src="/js/auth-scene.js"></script>
+    <script src="/js/app-scene.js"></script>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="/js/app.js"></script>
 </body>
