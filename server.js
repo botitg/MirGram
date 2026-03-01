@@ -220,10 +220,10 @@ function normalizeUsernameKey(value) {
 function validateUsername(username) {
     const value = normalizeUsername(username);
     if (value.length < 3 || value.length > 24) {
-        return 'РќРёРє РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 3 РґРѕ 24 СЃРёРјРІРѕР»РѕРІ.';
+        return 'Ник должен быть от 3 до 24 символов.';
     }
     if (!/^[\p{L}\p{N}_.-]+$/u.test(value)) {
-        return 'РќРёРє РјРѕР¶РµС‚ СЃРѕРґРµСЂР¶Р°С‚СЊ Р±СѓРєРІС‹, С†РёС„СЂС‹, _, . Рё -.';
+        return 'Ник может содержать буквы, цифры, _, . и -.';
     }
     return null;
 }
@@ -232,7 +232,7 @@ function toBool(value, fallback = false) {
     if (typeof value === 'boolean') return value;
     if (value === null || typeof value === 'undefined' || value === '') return fallback;
     const normalized = String(value).trim().toLowerCase();
-    return ['1', 'true', 'yes', 'on', 'РґР°'].includes(normalized);
+    return ['1', 'true', 'yes', 'on', 'да'].includes(normalized);
 }
 
 function createToken(userId) {
@@ -573,7 +573,7 @@ async function createMessage({ chatId, userId, type, text = '', imageUrl = null,
     if (userId) {
         const identity = await userIdentityInChat(chatId, userId);
         if (!identity) {
-            throw new Error('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ СЃРѕСЃС‚РѕРёС‚ РІ С‡Р°С‚Рµ.');
+            throw new Error('Пользователь не состоит в чате.');
         }
         senderName = identity.groupNick || identity.username;
         senderAvatar = identity.groupAvatarUrl || identity.baseAvatar || '';
@@ -587,8 +587,8 @@ async function createMessage({ chatId, userId, type, text = '', imageUrl = null,
              WHERE id = ?`,
             [safeReplyToMessageId]
         );
-        assert(replyTarget, 'РЎРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РѕС‚РІРµС‚Р° РЅРµ РЅР°Р№РґРµРЅРѕ.', 404);
-        assert(Number(replyTarget.chatId) === Number(chatId), 'РќРµР»СЊР·СЏ РѕС‚РІРµС‡Р°С‚СЊ РЅР° СЃРѕРѕР±С‰РµРЅРёРµ РёР· РґСЂСѓРіРѕРіРѕ С‡Р°С‚Р°.', 400);
+        assert(replyTarget, 'Сообщение для ответа не найдено.', 404);
+        assert(Number(replyTarget.chatId) === Number(chatId), 'Нельзя отвечать на сообщение из другого чата.', 400);
     } else {
         safeReplyToMessageId = null;
     }
@@ -669,14 +669,14 @@ async function notifyChatMessage(chatId, senderUserId, message) {
     );
 
     const title = chat?.type === 'private'
-        ? `РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РѕС‚ @${message.sender?.username || 'РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ'}`
-        : `${chat?.name || 'Р“СЂСѓРїРїР°'}: РЅРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ`;
+        ? `Новое сообщение от @${message.sender?.username || 'пользователя'}`
+        : `${chat?.name || 'Группа'}: новое сообщение`;
 
-    let body = message.text || 'РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ';
-    if (message.type === 'image') body = 'рџ“· Р¤РѕС‚Рѕ';
-    if (message.type === 'sticker') body = 'рџ§© РЎС‚РёРєРµСЂ';
-    if (message.type === 'audio') body = 'рџЋ™ Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ';
-    if (message.type === 'video') body = 'рџЋ¬ Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ';
+    let body = message.text || 'Новое сообщение';
+    if (message.type === 'image') body = '📷 Фото';
+    if (message.type === 'sticker') body = '🧩 Стикер';
+    if (message.type === 'audio') body = '🎙 Голосовое сообщение';
+    if (message.type === 'video') body = '🎬 Видеосообщение';
 
     await sendPushToUsers(recipients, {
         title,
@@ -702,11 +702,11 @@ async function notifyChatCall(chatId, callerUserId, callerUsername, mode = 'audi
 
     const isVideo = mode === 'video';
     const title = chat?.type === 'private'
-        ? `Р’С…РѕРґСЏС‰РёР№ ${isVideo ? 'РІРёРґРµРѕР·РІРѕРЅРѕРє' : 'Р·РІРѕРЅРѕРє'} РѕС‚ @${callerUsername}`
-        : `${chat?.name || 'Р“СЂСѓРїРїР°'}: РЅР°С‡Р°Р»СЃСЏ ${isVideo ? 'РІРёРґРµРѕС‡Р°С‚' : 'РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚'}`;
+        ? `Входящий ${isVideo ? 'видеозвонок' : 'звонок'} от @${callerUsername}`
+        : `${chat?.name || 'Группа'}: начался ${isVideo ? 'видеочат' : 'голосовой чат'}`;
     const body = chat?.type === 'private'
-        ? 'РћС‚РєСЂРѕР№С‚Рµ MIRX, С‡С‚РѕР±С‹ РѕС‚РІРµС‚РёС‚СЊ РЅР° Р·РІРѕРЅРѕРє.'
-        : `@${callerUsername} Р·Р°РїСѓСЃС‚РёР»(Р°) ${isVideo ? 'РІРёРґРµРѕС‡Р°С‚' : 'РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚'}.`;
+        ? 'Откройте MIRX, чтобы ответить на звонок.'
+        : `@${callerUsername} запустил(а) ${isVideo ? 'видеочат' : 'голосовой чат'}.`;
 
     await sendPushToUsers(recipients, {
         title,
@@ -767,24 +767,24 @@ function normalizeApiError(error) {
             lowerConstraint.includes('idx_username') ||
             lowerConstraint.includes('username')
         ) {
-            return { status: 409, message: 'РќРёРє СѓР¶Рµ Р·Р°РЅСЏС‚.' };
+            return { status: 409, message: 'Ник уже занят.' };
         }
 
         if (
             lowerMessage.includes('chat_members') ||
             lowerConstraint.includes('chat_members')
         ) {
-            return { status: 409, message: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓР¶Рµ СЃРѕСЃС‚РѕРёС‚ РІ С‡Р°С‚Рµ.' };
+            return { status: 409, message: 'Пользователь уже состоит в чате.' };
         }
 
         if (
             lowerMessage.includes('notification_subscriptions') ||
             lowerConstraint.includes('notification')
         ) {
-            return { status: 409, message: 'РџРѕРґРїРёСЃРєР° СѓР¶Рµ СЃРѕС…СЂР°РЅРµРЅР°.' };
+            return { status: 409, message: 'Подписка уже сохранена.' };
         }
 
-        return { status: 409, message: 'РўР°РєР°СЏ Р·Р°РїРёСЃСЊ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚.' };
+        return { status: 409, message: 'Такая запись уже существует.' };
     }
 
     if (
@@ -792,15 +792,15 @@ function normalizeApiError(error) {
         lowerMessage.includes('foreign key constraint failed') ||
         lowerMessage.includes('violates foreign key constraint')
     ) {
-        return { status: 400, message: 'РЎРІСЏР·Р°РЅРЅС‹Р№ РѕР±СЉРµРєС‚ РЅРµ РЅР°Р№РґРµРЅ.' };
+        return { status: 400, message: 'Связанный объект не найден.' };
     }
 
     if (code === 'SQLITE_BUSY' || code === '55P03') {
-        return { status: 503, message: 'Р‘Р°Р·Р° РґР°РЅРЅС‹С… РІСЂРµРјРµРЅРЅРѕ Р·Р°РЅСЏС‚Р°. РџРѕРІС‚РѕСЂРёС‚Рµ РїРѕРїС‹С‚РєСѓ.' };
+        return { status: 503, message: 'База данных временно занята. Повторите попытку.' };
     }
 
     if (code === 'SQLITE_CANTOPEN') {
-        return { status: 500, message: 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ Р±Р°Р·Сѓ РґР°РЅРЅС‹С….' };
+        return { status: 500, message: 'Не удалось открыть базу данных.' };
     }
 
     return {
@@ -833,13 +833,13 @@ async function authMiddleware(req, res, next) {
     try {
         const header = req.headers.authorization || '';
         const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-        assert(token, 'РўСЂРµР±СѓРµС‚СЃСЏ Р°РІС‚РѕСЂРёР·Р°С†РёСЏ.', 401);
+        assert(token, 'Требуется авторизация.', 401);
 
         let payload;
         try {
             payload = jwt.verify(token, JWT_SECRET);
         } catch {
-            res.status(401).json({ error: 'РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ С‚РѕРєРµРЅ.' });
+            res.status(401).json({ error: 'Недействительный токен.' });
             return;
         }
 
@@ -851,7 +851,7 @@ async function authMiddleware(req, res, next) {
         );
 
         if (!user) {
-            res.status(401).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ.' });
+            res.status(401).json({ error: 'Пользователь не найден.' });
             return;
         }
         req.user = user;
@@ -1197,7 +1197,7 @@ async function initializeDatabase() {
     const groupResult = await db.run(
         `INSERT INTO chats (name, type, owner_id, is_default, created_at)
          VALUES (?, 'group', ?, 1, ?)`,
-        ['MIRX Р›РѕР±Р±Рё', owner.id, nowIso()]
+        ['MIRX Лобби', owner.id, nowIso()]
     );
 
     const chatId = groupResult.lastID;
@@ -1216,7 +1216,7 @@ async function initializeDatabase() {
         chatId,
         userId: owner.id,
         type: 'system',
-        text: 'Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ РІ MIRX. Р­С‚Рѕ РѕР±С‰РёР№ С‡Р°С‚ РґР»СЏ РѕР±С‰РµРЅРёСЏ.',
+        text: 'Добро пожаловать в MIRX. Это общий чат для общения.',
     });
 }
 
@@ -1246,10 +1246,10 @@ app.post(
 
         const usernameError = validateUsername(username);
         assert(!usernameError, usernameError, 400);
-        assert(password.length >= 6, 'РџР°СЂРѕР»СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РєРѕСЂРѕС‡Рµ 6 СЃРёРјРІРѕР»РѕРІ.', 400);
+        assert(password.length >= 6, 'Пароль должен быть не короче 6 символов.', 400);
 
         const exists = await db.get('SELECT id FROM users WHERE username_key = ?', [usernameKey]);
-        assert(!exists, 'РќРёРє СѓР¶Рµ Р·Р°РЅСЏС‚.', 409);
+        assert(!exists, 'Ник уже занят.', 409);
 
         const passwordHash = await bcrypt.hash(password, 10);
         const avatarUrl = buildDefaultAvatar(username);
@@ -1295,10 +1295,10 @@ app.post(
             [usernameKey]
         );
 
-        assert(row, 'РќРµРІРµСЂРЅС‹Р№ РЅРёРє РёР»Рё РїР°СЂРѕР»СЊ.', 401);
+        assert(row, 'Неверный ник или пароль.', 401);
 
         const ok = await bcrypt.compare(password, row.passwordHash);
-        assert(ok, 'РќРµРІРµСЂРЅС‹Р№ РЅРёРє РёР»Рё РїР°СЂРѕР»СЊ.', 401);
+        assert(ok, 'Неверный ник или пароль.', 401);
 
         const token = createToken(row.id);
         res.json({
@@ -1342,14 +1342,14 @@ app.put(
 
         const usernameError = validateUsername(nextUsername);
         assert(!usernameError, usernameError, 400);
-        assert(nextAvatar.length <= 500, 'URL Р°РІР°С‚Р°СЂР° СЃР»РёС€РєРѕРј РґР»РёРЅРЅС‹Р№.', 400);
-        assert(nextBio.length <= 280, 'РћРїРёСЃР°РЅРёРµ РїСЂРѕС„РёР»СЏ РЅРµ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РґР»РёРЅРЅРµРµ 280 СЃРёРјРІРѕР»РѕРІ.', 400);
+        assert(nextAvatar.length <= 500, 'URL аватара слишком длинный.', 400);
+        assert(nextBio.length <= 280, 'Описание профиля не должно быть длиннее 280 символов.', 400);
 
         const duplicate = await db.get(`SELECT id FROM users WHERE username_key = ? AND id <> ?`, [nextUsernameKey, req.user.id]);
-        assert(!duplicate, 'РќРёРє СѓР¶Рµ Р·Р°РЅСЏС‚.', 409);
+        assert(!duplicate, 'Ник уже занят.', 409);
 
         if (nextPassword) {
-            assert(nextPassword.length >= 6, 'РџР°СЂРѕР»СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РєРѕСЂРѕС‡Рµ 6 СЃРёРјРІРѕР»РѕРІ.', 400);
+            assert(nextPassword.length >= 6, 'Пароль должен быть не короче 6 символов.', 400);
             const passwordHash = await bcrypt.hash(nextPassword, 10);
             await db.run(
                 `UPDATE users
@@ -1378,14 +1378,14 @@ app.post(
     (req, res, next) => {
         avatarUpload.single('avatar')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
         });
     },
     withApi(async (req, res) => {
-        assert(req.file, 'Р¤Р°Р№Р» РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(req.file, 'Файл не получен.', 400);
 
         const current = await db.get(
             `SELECT avatar_url AS avatarUrl
@@ -1418,11 +1418,11 @@ app.post(
     '/api/notifications/subscribe',
     authMiddleware,
     withApi(async (req, res) => {
-        assert(pushEnabled, 'Push-СѓРІРµРґРѕРјР»РµРЅРёСЏ РЅРµ РЅР°СЃС‚СЂРѕРµРЅС‹ РЅР° СЃРµСЂРІРµСЂРµ.', 400);
+        assert(pushEnabled, 'Push-уведомления не настроены на сервере.', 400);
 
         const subscription = req.body.subscription;
-        assert(subscription && typeof subscription === 'object', 'РџРѕРґРїРёСЃРєР° РЅРµ РїРѕР»СѓС‡РµРЅР°.', 400);
-        assert(subscription.endpoint, 'РЈ РїРѕРґРїРёСЃРєРё РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚ endpoint.', 400);
+        assert(subscription && typeof subscription === 'object', 'Подписка не получена.', 400);
+        assert(subscription.endpoint, 'У подписки отсутствует endpoint.', 400);
 
         await removePushSubscriptionByEndpoint(subscription.endpoint);
         await db.run(
@@ -1440,7 +1440,7 @@ app.delete(
     authMiddleware,
     withApi(async (req, res) => {
         const endpoint = String(req.body.endpoint || '').trim();
-        assert(endpoint, 'РќСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ endpoint РїРѕРґРїРёСЃРєРё.', 400);
+        assert(endpoint, 'Нужно передать endpoint подписки.', 400);
         await removePushSubscriptionByEndpoint(endpoint);
         res.json({ ok: true });
     })
@@ -1479,9 +1479,9 @@ app.get(
         const limit = Math.max(1, Math.min(Number(req.query.limit || 120), 300));
 
         const actor = await readMembership(chatId, req.user.id);
-        assert(actor, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(actor.chatType === 'group', 'РљР°РЅРґРёРґР°С‚С‹ РґРѕСЃС‚СѓРїРЅС‹ С‚РѕР»СЊРєРѕ РґР»СЏ РіСЂСѓРїРї.', 400);
-        assert(canManageMembers(actor.role), 'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ.', 403);
+        assert(actor, 'Доступ запрещён.', 403);
+        assert(actor.chatType === 'group', 'Кандидаты доступны только для групп.', 400);
+        assert(canManageMembers(actor.role), 'Недостаточно прав.', 403);
 
         let query = `SELECT u.id,
                         u.username,
@@ -1616,7 +1616,7 @@ app.get(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р§Р°С‚ РЅРµ РЅР°Р№РґРµРЅ РёР»Рё РґРѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 404);
+        assert(membership, 'Чат не найден или доступ запрещён.', 404);
 
         const chat = await db.get(
             `SELECT id, name, type, owner_id AS ownerId, created_at AS createdAt
@@ -1682,7 +1682,7 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
 
         const latest = await db.get(
             `SELECT id
@@ -1714,7 +1714,7 @@ app.get(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
 
         const stickers = await listChatStickers(chatId);
         res.json({ stickers });
@@ -1727,7 +1727,7 @@ app.post(
     (req, res, next) => {
         messageUpload.single('sticker')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
@@ -1736,12 +1736,12 @@ app.post(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(membership.chatType === 'group', 'РЎС‚РёРєРµСЂРїР°Рє РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РІ РіСЂСѓРїРїР°С….', 400);
-        assert(membership.role === 'owner', 'Р”РѕР±Р°РІР»СЏС‚СЊ СЃС‚РёРєРµСЂС‹ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ РіСЂСѓРїРїС‹.', 403);
-        assert(req.file, 'Р¤Р°Р№Р» РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(membership.chatType === 'group', 'Стикерпак доступен только в группах.', 400);
+        assert(membership.role === 'owner', 'Добавлять стикеры может только создатель группы.', 403);
+        assert(req.file, 'Файл не получен.', 400);
 
-        const name = String(req.body.name || req.file.originalname || 'РЎС‚РёРєРµСЂ').trim().slice(0, 64) || 'РЎС‚РёРєРµСЂ';
+        const name = String(req.body.name || req.file.originalname || 'Стикер').trim().slice(0, 64) || 'Стикер';
         const imageUrl = await storeUploadedFile(req.file, {
             localFolder: 'images',
             cloudFolder: 'stickers',
@@ -1778,11 +1778,11 @@ app.post(
     authMiddleware,
     withApi(async (req, res) => {
         const userId = Number(req.body.userId);
-        assert(userId > 0, 'РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.', 400);
-        assert(userId !== req.user.id, 'РќРµР»СЊР·СЏ СЃРѕР·РґР°С‚СЊ С‡Р°С‚ СЃ СЃР°РјРёРј СЃРѕР±РѕР№.', 400);
+        assert(userId > 0, 'Нужно указать пользователя.', 400);
+        assert(userId !== req.user.id, 'Нельзя создать чат с самим собой.', 400);
 
         const peer = await readUser(userId);
-        assert(peer, 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ.', 404);
+        assert(peer, 'Пользователь не найден.', 404);
 
         const existing = await db.get(
             `SELECT c.id
@@ -1831,7 +1831,7 @@ app.post(
         const name = String(req.body.name || '').trim();
         const memberIds = Array.isArray(req.body.memberIds) ? req.body.memberIds.map(Number) : [];
 
-        assert(name.length >= 3 && name.length <= 80, 'РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РѕС‚ 3 РґРѕ 80 СЃРёРјРІРѕР»РѕРІ.', 400);
+        assert(name.length >= 3 && name.length <= 80, 'Название группы должно быть от 3 до 80 символов.', 400);
 
         const chatResult = await db.run(
             `INSERT INTO chats (name, type, owner_id, created_at)
@@ -1869,7 +1869,7 @@ app.post(
             chatId,
             userId: req.user.id,
             type: 'system',
-            text: `Р“СЂСѓРїРїР° СЃРѕР·РґР°РЅР° РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј @${req.user.username}`,
+            text: `Группа создана пользователем @${req.user.username}`,
         });
 
         res.json({ chatId });
@@ -1883,18 +1883,18 @@ app.post(
         const chatId = Number(req.params.chatId);
         const targetUserId = Number(req.body.userId);
 
-        assert(targetUserId > 0, 'РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°.', 400);
+        assert(targetUserId > 0, 'Нужно указать участника.', 400);
 
         const actor = await readMembership(chatId, req.user.id);
-        assert(actor, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(actor.chatType === 'group', 'Р”РѕР±Р°РІР»СЏС‚СЊ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РјРѕР¶РЅРѕ С‚РѕР»СЊРєРѕ РІ РіСЂСѓРїРїР°С….', 400);
-        assert(canManageMembers(actor.role), 'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ.', 403);
+        assert(actor, 'Доступ запрещён.', 403);
+        assert(actor.chatType === 'group', 'Добавлять участников можно только в группах.', 400);
+        assert(canManageMembers(actor.role), 'Недостаточно прав.', 403);
 
         const targetUser = await readUser(targetUserId);
-        assert(targetUser, 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ.', 404);
+        assert(targetUser, 'Пользователь не найден.', 404);
 
         const already = await readMembership(chatId, targetUserId);
-        assert(!already, 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓР¶Рµ РІ С‡Р°С‚Рµ.', 409);
+        assert(!already, 'Пользователь уже в чате.', 409);
 
         await db.run(
             `INSERT INTO chat_members (
@@ -1910,7 +1910,7 @@ app.post(
             chatId,
             userId: req.user.id,
             type: 'system',
-            text: `@${req.user.username} РґРѕР±Р°РІРёР»(Р°) @${targetUser.username} РІ РіСЂСѓРїРїСѓ`,
+            text: `@${req.user.username} добавил(а) @${targetUser.username} в группу`,
         });
 
         io.to(chatRoom(chatId)).emit('message:new', message);
@@ -1926,30 +1926,30 @@ app.put(
         const targetId = Number(req.params.memberId);
 
         const actor = await readMembership(chatId, req.user.id);
-        assert(actor, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(actor.chatType === 'group', 'Р Р°Р·СЂРµС€РµРЅРёСЏ РґРѕСЃС‚СѓРїРЅС‹ С‚РѕР»СЊРєРѕ РІ РіСЂСѓРїРїР°С….', 400);
+        assert(actor, 'Доступ запрещён.', 403);
+        assert(actor.chatType === 'group', 'Разрешения доступны только в группах.', 400);
 
         const target = await readMembership(chatId, targetId);
-        assert(target, 'РЈС‡Р°СЃС‚РЅРёРє РЅРµ РЅР°Р№РґРµРЅ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 404);
+        assert(target, 'Участник не найден в этом чате.', 404);
 
-        assert(canManageMembers(actor.role), 'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ.', 403);
+        assert(canManageMembers(actor.role), 'Недостаточно прав.', 403);
 
         const nextRole = req.body.role ? String(req.body.role).trim() : target.role;
-        assert(['owner', 'admin', 'member'].includes(nextRole), 'РќРµРґРѕРїСѓСЃС‚РёРјР°СЏ СЂРѕР»СЊ.', 400);
+        assert(['owner', 'admin', 'member'].includes(nextRole), 'Недопустимая роль.', 400);
 
         if (actor.role !== 'owner') {
-            assert(target.role === 'member', 'РђРґРјРёРЅ РјРѕР¶РµС‚ СѓРїСЂР°РІР»СЏС‚СЊ С‚РѕР»СЊРєРѕ РѕР±С‹С‡РЅС‹РјРё СѓС‡Р°СЃС‚РЅРёРєР°РјРё.', 403);
-            assert(nextRole === 'member', 'РќР°Р·РЅР°С‡Р°С‚СЊ СЂРѕР»Рё РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ РіСЂСѓРїРїС‹.', 403);
+            assert(target.role === 'member', 'Админ может управлять только обычными участниками.', 403);
+            assert(nextRole === 'member', 'Назначать роли может только создатель группы.', 403);
         } else {
-            assert(!(targetId === req.user.id && nextRole !== 'owner'), 'РЎРѕР·РґР°С‚РµР»СЊ РЅРµ РјРѕР¶РµС‚ СЃРЅСЏС‚СЊ СЃРІРѕСЋ СЂРѕР»СЊ owner.', 400);
-            assert(!(target.role === 'owner' && targetId !== req.user.id), 'Р’ РіСЂСѓРїРїРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ РѕРґРёРЅ owner.', 400);
+            assert(!(targetId === req.user.id && nextRole !== 'owner'), 'Создатель не может снять свою роль owner.', 400);
+            assert(!(target.role === 'owner' && targetId !== req.user.id), 'В группе может быть только один owner.', 400);
         }
 
         const groupNick = typeof req.body.groupNick === 'string' ? req.body.groupNick.trim() : target.groupNick;
         const groupAvatarUrl = typeof req.body.groupAvatarUrl === 'string' ? req.body.groupAvatarUrl.trim() : target.groupAvatarUrl;
 
-        assert(String(groupNick || '').length <= 40, 'РќРёРє РІ РіСЂСѓРїРїРµ РЅРµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґР»РёРЅРЅРµРµ 40 СЃРёРјРІРѕР»РѕРІ.', 400);
-        assert(String(groupAvatarUrl || '').length <= 500, 'URL Р°РІР°С‚Р°СЂР° СЃР»РёС€РєРѕРј РґР»РёРЅРЅС‹Р№.', 400);
+        assert(String(groupNick || '').length <= 40, 'Ник в группе не должен быть длиннее 40 символов.', 400);
+        assert(String(groupAvatarUrl || '').length <= 500, 'URL аватара слишком длинный.', 400);
 
         let canSend = toBool(req.body.canSend, Boolean(target.canSend));
         let canSendMedia = toBool(req.body.canSendMedia, Boolean(target.canSendMedia));
@@ -1997,13 +1997,13 @@ app.put(
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
 
         const groupNick = typeof req.body.groupNick === 'string' ? req.body.groupNick.trim() : membership.groupNick;
         const groupAvatarUrl = typeof req.body.groupAvatarUrl === 'string' ? req.body.groupAvatarUrl.trim() : membership.groupAvatarUrl;
 
-        assert(String(groupNick || '').length <= 40, 'РќРёРє РІ С‡Р°С‚Рµ РЅРµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґР»РёРЅРЅРµРµ 40 СЃРёРјРІРѕР»РѕРІ.', 400);
-        assert(String(groupAvatarUrl || '').length <= 500, 'URL Р°РІР°С‚Р°СЂР° СЃР»РёС€РєРѕРј РґР»РёРЅРЅС‹Р№.', 400);
+        assert(String(groupNick || '').length <= 40, 'Ник в чате не должен быть длиннее 40 символов.', 400);
+        assert(String(groupAvatarUrl || '').length <= 500, 'URL аватара слишком длинный.', 400);
 
         await db.run(
             `UPDATE chat_members
@@ -2030,7 +2030,7 @@ app.get(
         const beforeId = Number(req.query.beforeId || 0);
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
 
         let rows;
         if (beforeId > 0) {
@@ -2069,12 +2069,12 @@ app.post(
         const text = String(req.body.text || '').trim();
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
-        assert(text.length > 0, 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.', 400);
-        assert(text.length <= 4000, 'РЎРѕРѕР±С‰РµРЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ.', 400);
+        assert(text.length > 0, 'Сообщение не может быть пустым.', 400);
+        assert(text.length <= 4000, 'Сообщение слишком длинное.', 400);
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(Boolean(membership.canSend), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
 
         const message = await createMessage({
             chatId,
@@ -2096,7 +2096,7 @@ app.post(
     (req, res, next) => {
         messageUpload.single('image')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
@@ -2108,10 +2108,10 @@ app.post(
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(Boolean(membership.canSend), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(Boolean(membership.canSendMedia), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ С„РѕС‚Рѕ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(req.file, 'Р¤Р°Р№Р» РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять фото в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
 
         const imageUrl = await storeUploadedFile(req.file, {
             localFolder: 'images',
@@ -2140,7 +2140,7 @@ app.post(
     (req, res, next) => {
         audioUpload.single('audio')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
@@ -2152,10 +2152,10 @@ app.post(
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(Boolean(membership.canSend), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(Boolean(membership.canSendMedia), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ РјРµРґРёР° РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(req.file, 'Р¤Р°Р№Р» РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
 
         const audioUrl = await storeUploadedFile(req.file, {
             localFolder: 'audio',
@@ -2184,7 +2184,7 @@ app.post(
     (req, res, next) => {
         messageUpload.single('sticker')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
@@ -2197,20 +2197,20 @@ app.post(
         const stickerId = Number(req.body.stickerId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(Boolean(membership.canSend), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(Boolean(membership.canSendMedia), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ РјРµРґРёР° РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(req.file || stickerId, 'Р¤Р°Р№Р» РёР»Рё СЃС‚РёРєРµСЂ РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file || stickerId, 'Файл или стикер не получен.', 400);
 
         let stickerUrl = '';
         if (stickerId) {
             const sticker = await readStickerById(stickerId);
-            assert(sticker, 'РЎС‚РёРєРµСЂ РЅРµ РЅР°Р№РґРµРЅ.', 404);
-            assert(Number(sticker.chatId) === chatId, 'РЎС‚РёРєРµСЂ РЅРµ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ С‡Р°С‚Сѓ.', 400);
+            assert(sticker, 'Стикер не найден.', 404);
+            assert(Number(sticker.chatId) === chatId, 'Стикер не принадлежит этому чату.', 400);
             stickerUrl = sticker.imageUrl;
         } else {
             if (membership.chatType === 'group') {
-                assert(membership.role === 'owner', 'Р”РѕР±Р°РІР»СЏС‚СЊ РЅРѕРІС‹Рµ СЃС‚РёРєРµСЂС‹ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ РіСЂСѓРїРїС‹.', 403);
+                assert(membership.role === 'owner', 'Добавлять новые стикеры может только создатель группы.', 403);
             }
             stickerUrl = await storeUploadedFile(req.file, {
                 localFolder: 'images',
@@ -2240,7 +2240,7 @@ app.post(
     (req, res, next) => {
         videoUpload.single('video')(req, res, (error) => {
             if (error) {
-                res.status(400).json({ error: error.message || 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°.' });
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
                 return;
             }
             next();
@@ -2252,10 +2252,10 @@ app.post(
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
-        assert(Boolean(membership.canSend), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(Boolean(membership.canSendMedia), 'Р’Р°Рј Р·Р°РїСЂРµС‰РµРЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ РјРµРґРёР° РІ СЌС‚РѕРј С‡Р°С‚Рµ.', 403);
-        assert(req.file, 'Р¤Р°Р№Р» РЅРµ РїРѕР»СѓС‡РµРЅ.', 400);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
 
         const videoUrl = await storeUploadedFile(req.file, {
             localFolder: 'video',
@@ -2286,7 +2286,7 @@ app.delete(
         const messageId = Number(req.params.messageId);
 
         const membership = await readMembership(chatId, req.user.id);
-        assert(membership, 'Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ.', 403);
+        assert(membership, 'Доступ запрещён.', 403);
         const chat = await db.get(
             `SELECT type
              FROM chats
@@ -2295,13 +2295,13 @@ app.delete(
         );
 
         const row = await readMessageById(messageId);
-        assert(row, 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ.', 404);
-        assert(Number(row.chatId) === chatId, 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ С‡Р°С‚Сѓ.', 400);
-        assert(row.senderId, 'РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РЅРµР»СЊР·СЏ СѓРґР°Р»РёС‚СЊ.', 403);
+        assert(row, 'Сообщение не найдено.', 404);
+        assert(Number(row.chatId) === chatId, 'Сообщение не принадлежит этому чату.', 400);
+        assert(row.senderId, 'Системное сообщение нельзя удалить.', 403);
 
         const canDelete = Number(row.senderId) === Number(req.user.id)
             || (chat?.type === 'group' && canManageMembers(membership.role));
-        assert(canDelete, 'РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° СѓРґР°Р»РµРЅРёРµ СЌС‚РѕРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ.', 403);
+        assert(canDelete, 'У вас нет прав на удаление этого сообщения.', 403);
 
         if (row.deletedAt) {
             const message = await serializeMessage(row);
@@ -2338,7 +2338,7 @@ app.delete(
 async function validateSocketMembership(socket, chatId) {
     const member = await readMembership(chatId, socket.user.id);
     if (!member) {
-        throw new Error('РќРµС‚ РґРѕСЃС‚СѓРїР° Рє С‡Р°С‚Сѓ');
+        throw new Error('Нет доступа к чату');
     }
     return member;
 }
@@ -2391,13 +2391,13 @@ io.use(async (socket, next) => {
     try {
         const token = socket.handshake.auth?.token;
         if (!token) {
-            throw new Error('РўСЂРµР±СѓРµС‚СЃСЏ С‚РѕРєРµРЅ');
+            throw new Error('Требуется токен');
         }
 
         const payload = jwt.verify(token, JWT_SECRET);
         const user = await readUser(payload.userId);
         if (!user) {
-            throw new Error('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ');
+            throw new Error('Пользователь не найден');
         }
 
         socket.user = user;
@@ -2474,7 +2474,7 @@ io.on('connection', async (socket) => {
             const membership = await validateSocketMembership(socket, id);
 
             if (!membership.canStartCalls) {
-                socket.emit('call:error', { message: 'РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° Р·РІРѕРЅРєРё РІ СЌС‚РѕРј С‡Р°С‚Рµ.' });
+                socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
                 return;
             }
 
@@ -2517,7 +2517,7 @@ io.on('connection', async (socket) => {
             });
             await notifyChatCall(id, socket.user.id, socket.user.username, call.mode);
         } catch {
-            socket.emit('call:error', { message: 'РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°С‡Р°С‚СЊ Р·РІРѕРЅРѕРє.' });
+            socket.emit('call:error', { message: 'Не удалось начать звонок.' });
         }
     });
 
@@ -2526,13 +2526,13 @@ io.on('connection', async (socket) => {
             const id = Number(chatId);
             const membership = await validateSocketMembership(socket, id);
             if (!membership.canStartCalls) {
-                socket.emit('call:error', { message: 'РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° Р·РІРѕРЅРєРё РІ СЌС‚РѕРј С‡Р°С‚Рµ.' });
+                socket.emit('call:error', { message: 'У вас нет прав на звонки в этом чате.' });
                 return;
             }
 
             const call = activeCalls.get(id);
             if (!call) {
-                socket.emit('call:error', { message: 'РђРєС‚РёРІРЅС‹Р№ Р·РІРѕРЅРѕРє РЅРµ РЅР°Р№РґРµРЅ.' });
+                socket.emit('call:error', { message: 'Активный звонок не найден.' });
                 return;
             }
 
@@ -2564,7 +2564,7 @@ io.on('connection', async (socket) => {
                 actorUserId: userId,
             });
         } catch {
-            socket.emit('call:error', { message: 'РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРєР»СЋС‡РёС‚СЊСЃСЏ Рє Р·РІРѕРЅРєСѓ.' });
+            socket.emit('call:error', { message: 'Не удалось подключиться к звонку.' });
         }
     });
 

@@ -39,96 +39,12 @@ function assetUrl(pathOrUrl) {
     return withBaseUrl(value.startsWith("/") ? value : `/${value}`);
 }
 
-const utf8Decoder = typeof TextDecoder !== "undefined"
-    ? new TextDecoder("utf-8", { fatal: false })
-    : null;
-
-function getTextNaturalnessScore(value) {
-    let score = 0;
-    for (const char of String(value || "")) {
-        if (/[\p{Script=Cyrillic}0-9]/u.test(char)) {
-            score += 2;
-            continue;
-        }
-        if (/\p{Extended_Pictographic}/u.test(char)) {
-            score += 2;
-            continue;
-        }
-        if (/\s/.test(char)) {
-            score += 0.2;
-            continue;
-        }
-        if (/[.,!?@#%&*()_+\-=[\]{}:;"'\\/<>|`~]/.test(char)) {
-            score += 0.1;
-            continue;
-        }
-        if (/[ÂÐÑЃѓљќўџ]/u.test(char)) {
-            score -= 3;
-            continue;
-        }
-        score -= 0.4;
-    }
-    if (/Р.|С.|вЂ|рџ|Ñ.|Ð./u.test(String(value || ""))) {
-        score -= 8;
-    }
-    return score;
-}
-
-function decodeLatin1Utf8(value) {
-    if (!utf8Decoder) return String(value || "");
-    const bytes = Uint8Array.from(String(value || ""), (char) => char.charCodeAt(0) & 0xff);
-    return utf8Decoder.decode(bytes);
-}
-
 function repairMojibake(value) {
-    if (typeof value !== "string" || !value) return value;
-
-    let best = value;
-    let bestScore = getTextNaturalnessScore(value);
-    let current = value;
-
-    for (let i = 0; i < 2; i += 1) {
-        const next = decodeLatin1Utf8(current);
-        if (!next || next === current) break;
-
-        const nextScore = getTextNaturalnessScore(next);
-        if (nextScore <= bestScore + 1) break;
-
-        best = next;
-        bestScore = nextScore;
-        current = next;
-    }
-
-    if (best === value && /Р.|С.|вЂ|рџ|Ñ.|Ð./u.test(value)) {
-        const forceDecoded = decodeLatin1Utf8(value);
-        if (getTextNaturalnessScore(forceDecoded) >= bestScore - 1) {
-            best = forceDecoded;
-        }
-    }
-
-    return best;
+    return value;
 }
 
-function repairTextTree(root) {
-    if (!root) return;
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node) {
-        if (node.nodeValue?.trim()) {
-            node.nodeValue = repairMojibake(node.nodeValue);
-        }
-        node = walker.nextNode();
-    }
-
-    const elements = root.querySelectorAll ? root.querySelectorAll("*") : [];
-    for (const element of elements) {
-        for (const attr of ["placeholder", "title", "aria-label", "alt"]) {
-            if (element.hasAttribute(attr)) {
-                element.setAttribute(attr, repairMojibake(element.getAttribute(attr) || ""));
-            }
-        }
-    }
+function repairTextTree(_) {
+    // Source files are stored as UTF-8. Runtime text repair is intentionally disabled.
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -257,33 +173,33 @@ const MOBILE_BREAKPOINT = 840;
 const EMOJI_GROUPS = [
     {
         key: "recent",
-        icon: "рџ•",
-        title: "РќРµРґР°РІРЅРёРµ",
+        icon: "🕘",
+        title: "Недавние",
         emojis: [],
     },
     {
         key: "smileys",
-        icon: "рџЂ",
-        title: "РЈР»С‹Р±РєРё",
-        emojis: ["рџЂ", "рџѓ", "рџ„", "рџЃ", "рџ…", "рџ‚", "рџ¤Ј", "рџЉ", "рџ™‚", "рџ‰", "рџЌ", "рџҐ°", "рџ", "рџЋ", "рџ¤©", "рџ­", "рџЎ", "рџґ", "рџ¤Ї", "рџҐі", "рџ‡", "рџ¤”", "рџ«Ў", "рџ¤ќ", "рџЊ", "рџ‹", "рџЏ", "рџ™ѓ", "рџ¬", "рџҐІ", "рџ¤", "рџ±", "рџҐ¶", "рџҐµ", "рџ¤ ", "рџ« "],
+        icon: "😀",
+        title: "Улыбки",
+        emojis: ["😀", "😃", "😄", "😁", "😅", "😂", "🤣", "😊", "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "😭", "😡", "😴", "🤯", "🥳", "😇", "🤔", "🫡", "🤝", "😌", "😋", "😏", "🙃", "😬", "🥲", "😤", "😱", "🥶", "🥵", "🤠", "🫠"],
     },
     {
         key: "people",
-        icon: "рџ™Њ",
-        title: "Р›СЋРґРё",
-        emojis: ["рџ‘Ќ", "рџ‘Ћ", "рџ‘Џ", "рџ™Њ", "рџ™Џ", "рџ¤ќ", "рџ«¶", "рџ’Є", "рџ‘Ђ", "рџ’¬", "рџ§ ", "вќ¤пёЏ", "рџ”Ґ", "вњЁ", "рџ’Ї", "вњ…", "вќЊ", "вљЎ", "рџЋ‰", "рџЏ†", "рџ¤Њ", "рџ‘Њ", "вњЊпёЏ", "рџ¤ћ", "рџ¤џ", "рџ‘‹", "рџ™‹", "рџ«µ", "рџ‘‘", "рџ§‘вЂЌрџ’»", "рџ•є", "рџ’ѓ"],
+        icon: "🙌",
+        title: "Люди",
+        emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "🫶", "💪", "👀", "💬", "🧠", "❤️", "🔥", "✨", "💯", "✅", "❌", "⚡", "🎉", "🏆", "🤌", "👌", "✌️", "🤞", "🤟", "👋", "🙋", "🫵", "👑", "🧑‍💻", "🕺", "💃"],
     },
     {
         key: "objects",
-        icon: "рџ“±",
-        title: "РћР±СЉРµРєС‚С‹",
-        emojis: ["рџ“ћ", "рџЋ¤", "рџЋ§", "рџ“·", "рџЋ¬", "рџ’»", "рџ“±", "вЊљ", "рџ””", "рџ”’", "рџ›ЎпёЏ", "рџ’Ў", "рџ“Њ", "рџ“Ћ", "вњ‰пёЏ", "рџ—‚пёЏ", "рџ§©", "рџ›°пёЏ", "рџ–ҐпёЏ", "вЊЁпёЏ", "рџ•№пёЏ", "рџ“Ў", "рџЋ®", "рџЄ„", "рџ“Ќ", "рџ”‹", "рџ’ѕ", "рџ“Ѓ", "рџ§·", "рџ—ќпёЏ"],
+        icon: "📱",
+        title: "Объекты",
+        emojis: ["📞", "🎤", "🎧", "📷", "🎬", "💻", "📱", "⌚", "🔔", "🔒", "🛡️", "💡", "📌", "📎", "✉️", "🗂️", "🧩", "🛰️", "🖥️", "⌨️", "🕹️", "📡", "🎮", "🪄", "📍", "🔋", "💾", "📁", "🧷", "🗝️"],
     },
     {
         key: "nature",
-        icon: "рџЊЌ",
-        title: "РњРёСЂ",
-        emojis: ["рџЊЌ", "рџЊЋ", "рџЊЏ", "рџЊ™", "в­ђ", "вЂпёЏ", "рџЊ§пёЏ", "рџЊ€", "рџЊЉ", "рџЊї", "рџЌЂ", "рџЊІ", "рџЊє", "рџЌЋ", "в•", "рџЌ•", "рџљЂ", "рџЏ™пёЏ", "рџЊґ", "рџЊµ", "рџЊё", "рџЊј", "рџЊ»", "рџЌ‡", "рџЌ“", "рџЌ”", "рџЌџ", "рџ§‹", "рџЏќпёЏ", "рџЏ”пёЏ"],
+        icon: "🌍",
+        title: "Мир",
+        emojis: ["🌍", "🌎", "🌏", "🌙", "⭐", "☀️", "🌧️", "🌈", "🌊", "🌿", "🍀", "🌲", "🌺", "🍎", "☕", "🍕", "🚀", "🏙️", "🌴", "🌵", "🌸", "🌼", "🌻", "🍇", "🍓", "🍔", "🍟", "🧋", "🏝️", "🏔️"],
     },
 ];
 
@@ -466,7 +382,7 @@ async function syncPushSubscription() {
 
 async function enablePushNotifications({ quiet = false } = {}) {
     if (!("Notification" in window)) {
-        if (!quiet) toast("Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ СѓРІРµРґРѕРјР»РµРЅРёСЏ.");
+        if (!quiet) toast("Этот браузер не поддерживает уведомления.");
         return;
     }
 
@@ -475,7 +391,7 @@ async function enablePushNotifications({ quiet = false } = {}) {
         : await Notification.requestPermission();
     state.notificationPermission = permission;
     if (permission !== "granted") {
-        if (!quiet) toast("Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ РЅРµ РІС‹РґР°РЅРѕ.");
+        if (!quiet) toast("Разрешение на уведомления не выдано.");
         state.pushEnabled = false;
         renderProfile();
         return;
@@ -483,9 +399,9 @@ async function enablePushNotifications({ quiet = false } = {}) {
 
     try {
         await syncPushSubscription();
-        if (!quiet) toast("РЈРІРµРґРѕРјР»РµРЅРёСЏ РІРєР»СЋС‡РµРЅС‹.");
+        if (!quiet) toast("Уведомления включены.");
     } catch (error) {
-        if (!quiet) toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РІРєР»СЋС‡РёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ.");
+        if (!quiet) toast(error.message || "Не удалось включить уведомления.");
     }
 }
 
@@ -674,20 +590,20 @@ function safePlayMediaElement(element) {
 }
 
 function getMessageTypeLabel(message) {
-    if (!message) return "РЎРѕРѕР±С‰РµРЅРёРµ";
-    if (message.isDeleted || message.type === "deleted") return "РЎРѕРѕР±С‰РµРЅРёРµ СѓРґР°Р»РµРЅРѕ";
-    if (message.type === "sticker") return "рџ§© РЎС‚РёРєРµСЂ";
-    if (message.type === "image") return "рџ“· Р¤РѕС‚Рѕ";
-    if (message.type === "audio") return "рџЋ™ Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ";
-    if (message.type === "video") return "рџЋ¬ Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ";
-    if (message.type === "system") return message.text || "РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ";
-    return message.text || "РЎРѕРѕР±С‰РµРЅРёРµ";
+    if (!message) return "Сообщение";
+    if (message.isDeleted || message.type === "deleted") return "Сообщение удалено";
+    if (message.type === "sticker") return "🧩 Стикер";
+    if (message.type === "image") return "📷 Фото";
+    if (message.type === "audio") return "🎙 Голосовое сообщение";
+    if (message.type === "video") return "🎬 Видеосообщение";
+    if (message.type === "system") return message.text || "Системное сообщение";
+    return message.text || "Сообщение";
 }
 
 function getReplySnippet(message) {
     if (!message) return "";
     if (message.isDeleted || message.type === "deleted") {
-        return "РЎРѕРѕР±С‰РµРЅРёРµ СѓРґР°Р»РµРЅРѕ";
+        return "Сообщение удалено";
     }
     if (message.text) {
         return message.text.length > 120 ? `${message.text.slice(0, 117)}...` : message.text;
@@ -759,7 +675,7 @@ function loadImageElementFromFile(file) {
         };
         image.onerror = () => {
             URL.revokeObjectURL(objectUrl);
-            reject(new Error("РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±СЂР°Р±РѕС‚Р°С‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ."));
+            reject(new Error("Не удалось обработать изображение."));
         };
         image.src = objectUrl;
     });
@@ -769,7 +685,7 @@ function canvasToBlob(canvas, type, quality) {
     return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (!blob) {
-                reject(new Error("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ."));
+                reject(new Error("Не удалось подготовить изображение."));
                 return;
             }
             resolve(blob);
@@ -935,9 +851,9 @@ async function api(path, options = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         if (res.status === 404 && !API_BASE_URL && !window.location.hostname.includes("localhost")) {
-            throw new Error("Backend РЅРµ РЅР°Р№РґРµРЅ РЅР° С‚РµРєСѓС‰РµРј РґРѕРјРµРЅРµ. РџСЂРѕРІРµСЂСЊ РґРµРїР»РѕР№ single-host РїСЂРёР»РѕР¶РµРЅРёСЏ.");
+            throw new Error("Backend не найден на текущем домене. Проверь деплой single-host приложения.");
         }
-        throw new Error(data.error || `РћС€РёР±РєР° ${res.status}`);
+        throw new Error(data.error || `Ошибка ${res.status}`);
     }
     return data;
 }
@@ -968,7 +884,7 @@ function renderResumeSessionCard() {
     dom.resumeSessionCard.classList.remove("hidden");
     dom.resumeSessionAvatar.src = assetUrl(user.avatarUrl || defaultAvatar(user.username || "MIRX"));
     dom.resumeSessionUsername.textContent = `@${user.username || "user"}`;
-    dom.resumeSessionHint.textContent = "РќР°Р¶РјРёС‚Рµ В«РџСЂРѕРґРѕР»Р¶РёС‚СЊВ», РµСЃР»Рё СЌС‚Рѕ РІР°С€ Р°РєРєР°СѓРЅС‚, РёР»Рё РІС‹Р±РµСЂРёС‚Рµ РґСЂСѓРіРѕР№.";
+    dom.resumeSessionHint.textContent = "Нажмите «Продолжить», если это ваш аккаунт, или выберите другой.";
     repairTextTree(dom.resumeSessionCard);
 }
 
@@ -993,7 +909,7 @@ function closeModal(cancelled = true) {
 
 function openModal({ title, submitLabel, fields }) {
     dom.modalTitle.textContent = title || "Информация";
-    dom.modalSubmit.textContent = submitLabel || "РЎРѕС…СЂР°РЅРёС‚СЊ";
+    dom.modalSubmit.textContent = submitLabel || "Сохранить";
     modalState.fields = fields || [];
 
     setInnerHtmlAndRepair(dom.modalFields, modalState.fields.map((field) => {
@@ -1090,7 +1006,7 @@ function getCurrentChat() {
 }
 
 function getChatDisplayName(chat) {
-    return chat?.name || "Р§Р°С‚";
+    return chat?.name || "Чат";
 }
 
 function getChatAvatarUrl(chat, peer = null) {
@@ -1104,7 +1020,7 @@ function getChatAvatarUrl(chat, peer = null) {
 
 function getChatPreviewText(chat) {
     const lastMessage = chat?.lastMessage;
-    if (!lastMessage) return "РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№";
+    if (!lastMessage) return "Нет сообщений";
 
     const label = getMessageTypeLabel(lastMessage);
     if (!lastMessage.sender) {
@@ -1116,7 +1032,7 @@ function getChatPreviewText(chat) {
     }
 
     if (chat?.type === "group") {
-        const author = lastMessage.sender.displayName || lastMessage.sender.username || "РЈС‡Р°СЃС‚РЅРёРє";
+        const author = lastMessage.sender.displayName || lastMessage.sender.username || "Участник";
         return `${author}: ${label}`;
     }
 
@@ -1131,7 +1047,7 @@ function isOnline(userId) {
 function renderProfileTrigger() {
     if (!state.me) {
         dom.profileOpenAvatar.src = "/assets/icon.png";
-        dom.profileOpenName.textContent = "РџСЂРѕС„РёР»СЊ";
+        dom.profileOpenName.textContent = "Профиль";
         return;
     }
 
@@ -1142,15 +1058,15 @@ function renderProfileTrigger() {
 function syncProfilePreview() {
     if (!state.me) return;
 
-    const previewName = dom.profileEditorUsername.value.trim() || state.me.username || "РџСЂРѕС„РёР»СЊ";
-    const previewBio = dom.profileEditorBio.value.trim() || "РќР°СЃС‚СЂРѕР№С‚Рµ РЅРёРє, Р°РІР°С‚Р°СЂ, РѕРїРёСЃР°РЅРёРµ Рё РїР°СЂРѕР»СЊ.";
+    const previewName = dom.profileEditorUsername.value.trim() || state.me.username || "Профиль";
+    const previewBio = dom.profileEditorBio.value.trim() || "Настройте ник, аватар, описание и пароль.";
 
     dom.profileEditorAvatarPreview.src = getProfileDraftAvatar() || defaultAvatar(previewName);
     dom.profileEditorNamePreview.textContent = `@${previewName}`;
     dom.profileEditorBioPreview.textContent = previewBio;
     dom.profileEditorAvatarMeta.textContent = state.profileAvatarFile
-        ? `Р’С‹Р±СЂР°РЅРѕ: ${state.profileAvatarFile.name}`
-        : "Р¤Р°Р№Р» РЅРµ РІС‹Р±СЂР°РЅ";
+        ? `Выбрано: ${state.profileAvatarFile.name}`
+        : "Файл не выбран";
 }
 
 function fillProfileEditor() {
@@ -1198,11 +1114,11 @@ function renderProfile() {
         : "";
 
     const notificationsSupported = "Notification" in window;
-    let notificationLabel = "Р’РєР»СЋС‡РёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ";
+    let notificationLabel = "Включить уведомления";
     if (state.notificationPermission === "denied") {
-        notificationLabel = "РЈРІРµРґРѕРјР»РµРЅРёСЏ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅС‹";
+        notificationLabel = "Уведомления заблокированы";
     } else if (state.pushEnabled) {
-        notificationLabel = "РЈРІРµРґРѕРјР»РµРЅРёСЏ РІРєР»СЋС‡РµРЅС‹";
+        notificationLabel = "Уведомления включены";
     }
     const notificationAction = notificationsSupported
         ? `<button id="enableNotificationsBtn" class="btn ghost" type="button">${notificationLabel}</button>`
@@ -1214,20 +1130,20 @@ function renderProfile() {
                 <img src="${escapeHtml(getMeAvatar())}" alt="avatar" />
                 <div class="profile-card-name">
                     <strong>@${escapeHtml(state.me.username)}</strong>
-                    <div class="hint">Р’Р°С€ Р°РєРєР°СѓРЅС‚ MIRX</div>
+                    <div class="hint">Ваш аккаунт MIRX</div>
                     <div class="profile-status">
                         <span class="status-dot ${isOnline(state.me.id) ? "online" : "offline"}"></span>
-                        <span>${isOnline(state.me.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</span>
+                        <span>${isOnline(state.me.id) ? "Онлайн" : "Оффлайн"}</span>
                     </div>
                 </div>
             </div>
             <div class="profile-meta telegram-profile-meta">
                 <div class="profile-meta-row"><span>ID</span><strong>${state.me.id}</strong></div>
-                <div class="profile-meta-row"><span>РќРёРє РґР»СЏ РІС…РѕРґР°</span><strong>@${escapeHtml(state.me.username)}</strong></div>
+                <div class="profile-meta-row"><span>Ник для входа</span><strong>@${escapeHtml(state.me.username)}</strong></div>
             </div>
             ${bio}
             <div class="profile-card-actions">
-                <button id="editProfileBtn" class="btn ghost" type="button">РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ</button>
+                <button id="editProfileBtn" class="btn ghost" type="button">Открыть профиль</button>
                 ${notificationAction}
             </div>
         </section>
@@ -1261,7 +1177,7 @@ function filterStickersByQuery(query) {
     if (!needle || !state.currentChatId) return [];
 
     return state.chatStickers.filter((sticker) => {
-        const name = String(sticker.name || "СЃС‚РёРєРµСЂ").toLowerCase();
+        const name = String(sticker.name || "стикер").toLowerCase();
         return name.includes(needle);
     });
 }
@@ -1293,14 +1209,14 @@ function renderSearchPanel() {
     if (users.length) {
         sections.push(`
             <section class="search-section">
-                <div class="search-section-title">Р›СЋРґРё</div>
+                <div class="search-section-title">Люди</div>
                 <div class="search-results-list">
                     ${users.map((user) => `
                         <button type="button" class="search-result-item" data-search-user-id="${user.id}">
                             <img src="${escapeHtml(assetUrl(user.avatarUrl || defaultAvatar(user.username || "user")))}" alt="@${escapeHtml(user.username || "user")}" />
                             <div class="search-result-copy">
                                 <strong>@${escapeHtml(user.username || "user")}</strong>
-                                <span>РћС‚РєСЂС‹С‚СЊ Р»РёС‡РЅС‹Р№ С‡Р°С‚</span>
+                                <span>Открыть личный чат</span>
                             </div>
                         </button>
                     `).join("")}
@@ -1312,7 +1228,7 @@ function renderSearchPanel() {
     if (chats.length) {
         sections.push(`
             <section class="search-section">
-                <div class="search-section-title">Р§Р°С‚С‹</div>
+                <div class="search-section-title">Чаты</div>
                 <div class="search-results-list">
                     ${chats.map((chat) => `
                         <button type="button" class="search-result-item" data-search-chat-id="${chat.id}">
@@ -1331,12 +1247,12 @@ function renderSearchPanel() {
     if (stickers.length) {
         sections.push(`
             <section class="search-section">
-                <div class="search-section-title">РЎС‚РёРєРµСЂС‹ РІ С‚РµРєСѓС‰РµРј С‡Р°С‚Рµ</div>
+                <div class="search-section-title">Стикеры в текущем чате</div>
                 <div class="search-sticker-grid">
                     ${stickers.map((sticker) => `
-                        <button type="button" class="search-sticker-item" data-search-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}">
-                            <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}" />
-                            <span>${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}</span>
+                        <button type="button" class="search-sticker-item" data-search-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                            <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                            <span>${escapeHtml(sticker.name || "Стикер")}</span>
                         </button>
                     `).join("")}
                 </div>
@@ -1345,15 +1261,15 @@ function renderSearchPanel() {
     }
 
     const body = state.searchLoading
-        ? `<div class="search-panel-empty">РС‰Сѓ Р»СЋРґРµР№ Рё С‡Р°С‚С‹...</div>`
+        ? `<div class="search-panel-empty">Ищу людей и чаты...</div>`
         : hasResults
             ? sections.join("")
-            : `<div class="search-panel-empty">РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ. Р”Р»СЏ РїРѕРёСЃРєР° Р»СЋРґРµР№ РёСЃРїРѕР»СЊР·СѓР№С‚Рµ С„РѕСЂРјР°С‚ <code>@username</code>.</div>`;
+            : `<div class="search-panel-empty">Ничего не найдено. Для поиска людей используйте формат <code>@username</code>.</div>`;
 
     setInnerHtmlAndRepair(dom.searchPanel, `
         <div class="search-panel-shell">
             <div class="search-panel-head">
-                <strong>Р‘С‹СЃС‚СЂС‹Р№ РїРѕРёСЃРє</strong>
+                <strong>Быстрый поиск</strong>
                 <span>${escapeHtml(query)}</span>
             </div>
             ${body}
@@ -1414,7 +1330,7 @@ async function performSearch(query) {
             stickers: filterStickersByQuery(state.searchQuery).slice(0, 8),
         };
         renderSearchPanel();
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РїРѕР»РЅРёС‚СЊ РїРѕРёСЃРє.");
+        toast(error.message || "Не удалось выполнить поиск.");
     }
 }
 
@@ -1438,13 +1354,13 @@ function renderChats() {
     const actionItems = `
         <section class="chat-history-head">
             <div>
-                <span class="chat-stack-badge">РСЃС‚РѕСЂРёСЏ</span>
-                <h3>Р§Р°С‚С‹</h3>
-                <p class="chat-history-subtitle">Р›РёС‡РЅС‹Рµ РґРёР°Р»РѕРіРё, РіСЂСѓРїРїС‹, РїРѕРёСЃРє Р»СЋРґРµР№ Рё РѕР±С‰РёР№ РїРѕС‚РѕРє СЃРѕР±С‹С‚РёР№.</p>
+                <span class="chat-stack-badge">История</span>
+                <h3>Чаты</h3>
+                <p class="chat-history-subtitle">Личные диалоги, группы, поиск людей и общий поток событий.</p>
             </div>
             <div class="chat-history-actions">
-                <button type="button" class="history-pill-btn" data-create="private">+ Р›РЎ</button>
-                <button type="button" class="history-pill-btn" data-create="group">+ Р“СЂСѓРїРїР°</button>
+                <button type="button" class="history-pill-btn" data-create="private">+ ЛС</button>
+                <button type="button" class="history-pill-btn" data-create="group">+ Группа</button>
             </div>
         </section>
     `;
@@ -1453,7 +1369,7 @@ function renderChats() {
         setInnerHtmlAndRepair(dom.chatList, `
             ${actionItems}
             <div class="chat-list-empty">
-                <p class="hint">Р§Р°С‚РѕРІ РїРѕРєР° РЅРµС‚. РЎРѕР·РґР°Р№С‚Рµ Р»РёС‡РЅС‹Р№ С‡Р°С‚ РёР»Рё РіСЂСѓРїРїСѓ.</p>
+                <p class="hint">Чатов пока нет. Создайте личный чат или группу.</p>
             </div>
         `);
         return;
@@ -1468,15 +1384,15 @@ function renderChats() {
             ${chat.type === "private" ? `<span class="chat-avatar-status ${peerOnline ? "online" : "offline"}"></span>` : ""}
         `;
         const time = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "";
-        const typeLabel = chat.type === "group" ? "Р“СЂСѓРїРїР°" : "Р›РёС‡РЅС‹Р№ С‡Р°С‚";
+        const typeLabel = chat.type === "group" ? "Группа" : "Личный чат";
         const callStatus = state.callStatusByChat.get(chat.id);
         const callBadge = callStatus?.active
-            ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Р’РёРґРµРѕР·РІРѕРЅРѕРє" : "РђСѓРґРёРѕР·РІРѕРЅРѕРє"}</span>`
+            ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Видеозвонок" : "Аудиозвонок"}</span>`
             : "";
         const membersBadge = chat.type === "group"
-            ? `<span class="chat-chip subtle">${chat.membersCount || 0} СѓС‡Р°СЃС‚РЅРёРєРѕРІ</span>`
+            ? `<span class="chat-chip subtle">${chat.membersCount || 0} участников</span>`
             : "";
-        const mutedHint = chat.type === "group" ? "" : peerOnline ? "РѕРЅР»Р°Р№РЅ" : "РѕС„С„Р»Р°Р№РЅ";
+        const mutedHint = chat.type === "group" ? "" : peerOnline ? "онлайн" : "оффлайн";
 
         return `
             <article class="chat-item ${active}" data-chat-id="${chat.id}">
@@ -1484,11 +1400,11 @@ function renderChats() {
                 <div class="chat-card-body">
                     <div class="chat-card-top">
                         <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
-                        <span class="chat-time">${escapeHtml(time || "СЃРµР№С‡Р°СЃ")}</span>
+                        <span class="chat-time">${escapeHtml(time || "сейчас")}</span>
                     </div>
                     <p class="chat-preview">${escapeHtml(lastText)}</p>
                     <div class="chat-meta">
-                        <span class="chat-chip">${typeLabel}${mutedHint ? ` В· ${mutedHint}` : ""}</span>
+                        <span class="chat-chip">${typeLabel}${mutedHint ? ` · ${mutedHint}` : ""}</span>
                         ${membersBadge}
                         ${callBadge}
                     </div>
@@ -1499,7 +1415,7 @@ function renderChats() {
 
     setInnerHtmlAndRepair(dom.chatList, `
         ${actionItems}
-        <div class="chat-list-divider">РџРѕСЃР»РµРґРЅРёРµ СЃРѕРѕР±С‰РµРЅРёСЏ</div>
+        <div class="chat-list-divider">Последние сообщения</div>
         ${chatItems}
     `);
 }
@@ -1520,23 +1436,23 @@ function renderChatHeader() {
     const canUseCallAction = callStatus?.active
         ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
         : Boolean(state.myPermissions?.canStartCalls);
-    const chatModeLabel = callStatus?.mode === "video" ? "РІРёРґРµРѕС‡Р°С‚" : "РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚";
+    const chatModeLabel = callStatus?.mode === "video" ? "видеочат" : "голосовой чат";
     const callHint = callStatus?.active
-        ? `РРґС‘С‚ ${chatModeLabel}`
+        ? `Идёт ${chatModeLabel}`
         : isPrivateChat && privatePeer
-            ? (isOnline(privatePeer.id) ? "РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РѕРЅР»Р°Р№РЅ" : "РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РѕС„С„Р»Р°Р№РЅ")
-            : `${state.members.length} СѓС‡Р°СЃС‚РЅРёРєРѕРІ`;
+            ? (isOnline(privatePeer.id) ? "пользователь онлайн" : "пользователь оффлайн")
+            : `${state.members.length} участников`;
     const actionLabel = inCurrentCall
-        ? "РћС‚РєСЂС‹С‚СЊ Р·РІРѕРЅРѕРє"
+        ? "Открыть звонок"
         : callStatus?.active
-            ? (isPrivateChat ? "РћС‚РІРµС‚РёС‚СЊ" : "Р’РѕР№С‚Рё РІ СЌС„РёСЂ")
-            : (isPrivateChat ? "РџРѕР·РІРѕРЅРёС‚СЊ" : "РќР°С‡Р°С‚СЊ СЌС„РёСЂ");
-    const actionIcon = inCurrentCall ? "рџ“Ў" : callStatus?.active ? "рџЋ§" : (isPrivateChat ? "рџ“ћ" : "рџЋҐ");
+            ? (isPrivateChat ? "Ответить" : "Войти в эфир")
+            : (isPrivateChat ? "Позвонить" : "Начать эфир");
+    const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : (isPrivateChat ? "📞" : "🎥");
     const avatarUrl = getChatAvatarUrl(chat, privatePeer);
     const statusMarkup = isPrivateChat && privatePeer
         ? `<span class="header-status-pill ${isOnline(privatePeer.id) ? "online" : "offline"}">
                 <span class="status-dot ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>
-                ${isOnline(privatePeer.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}
+                ${isOnline(privatePeer.id) ? "Онлайн" : "Оффлайн"}
            </span>`
         : "";
 
@@ -1548,7 +1464,7 @@ function renderChatHeader() {
             </div>
             <div class="chat-title">
                 <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
-                <small>${chat.type === "group" ? "Р“СЂСѓРїРїР°" : "Р›РёС‡РЅС‹Р№ С‡Р°С‚"}${callHint ? ` В· ${escapeHtml(callHint)}` : ""}</small>
+                <small>${chat.type === "group" ? "Группа" : "Личный чат"}${callHint ? ` · ${escapeHtml(callHint)}` : ""}</small>
             </div>
         </div>
         <div class="header-actions">
@@ -1590,8 +1506,8 @@ function renderTypingBar() {
 
     const names = Array.from(entry.users.values());
     const text = names.length === 1
-        ? `${names[0]} РїРµС‡Р°С‚Р°РµС‚...`
-        : `${names.slice(0, 2).join(", ")} Рё РµС‰С‘ РєС‚Рѕ-С‚Рѕ РїРµС‡Р°С‚Р°СЋС‚...`;
+        ? `${names[0]} печатает...`
+        : `${names.slice(0, 2).join(", ")} и ещё кто-то печатают...`;
     dom.typingBar.textContent = text;
 }
 
@@ -1601,15 +1517,15 @@ function renderVoiceMessagePlayer(message) {
 
     return `
         <div class="msg-media-card msg-voice-card" data-audio-player>
-            <button type="button" class="voice-note-toggle" data-audio-toggle aria-label="Р’РѕСЃРїСЂРѕРёР·РІРµСЃС‚Рё РіРѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ">
-                <span class="voice-note-toggle-icon" data-audio-icon>в–¶</span>
+            <button type="button" class="voice-note-toggle" data-audio-toggle aria-label="Воспроизвести голосовое сообщение">
+                <span class="voice-note-toggle-icon" data-audio-icon>▶</span>
             </button>
             <div class="voice-note-body">
                 <div class="voice-note-bars" aria-hidden="true">
                     <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
                 </div>
                 <div class="voice-note-meta-row">
-                    <strong>Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ</strong>
+                    <strong>Голосовое сообщение</strong>
                     <span data-audio-time>0:00</span>
                 </div>
                 <div class="voice-note-progress"><span data-audio-progress></span></div>
@@ -1622,7 +1538,7 @@ function renderVoiceMessagePlayer(message) {
 function renderReplyCard(replyTo) {
     if (!replyTo) return "";
 
-    const author = replyTo.sender?.displayName || replyTo.sender?.username || "РЎРѕРѕР±С‰РµРЅРёРµ";
+    const author = replyTo.sender?.displayName || replyTo.sender?.username || "Сообщение";
     return `
         <div class="msg-reply-card">
             <strong>${escapeHtml(author)}</strong>
@@ -1638,13 +1554,13 @@ function renderMessageViewsMeta(message) {
 
     const views = Array.isArray(message.views) ? message.views : [];
     if (!views.length) {
-        return `<button type="button" class="msg-view-pill" disabled>РќРµ РїСЂРѕСЃРјРѕС‚СЂРµРЅРѕ</button>`;
+        return `<button type="button" class="msg-view-pill" disabled>Не просмотрено</button>`;
     }
 
     const lastView = views[views.length - 1];
     return `
         <button type="button" class="msg-view-pill" data-open-views="${message.id}">
-            ${views.length} РїСЂРѕСЃРјРѕС‚СЂ${views.length > 1 ? "Р°" : ""} В· ${formatTime(lastView.viewedAt)}
+            ${views.length} просмотр${views.length > 1 ? "а" : ""} · ${formatTime(lastView.viewedAt)}
         </button>
     `;
 }
@@ -1658,7 +1574,7 @@ function buildHistoryEntries() {
                 id: `system-${message.id}`,
                 kind: "system",
                 createdAt: message.createdAt,
-                text: message.text || "РЎРёСЃС‚РµРјРЅРѕРµ СЃРѕР±С‹С‚РёРµ",
+                text: message.text || "Системное событие",
             });
         }
         if (Array.isArray(message.views) && message.views.length) {
@@ -1667,7 +1583,7 @@ function buildHistoryEntries() {
                     id: `view-${message.id}-${view.userId}-${view.viewedAt}`,
                     kind: "view",
                     createdAt: view.viewedAt,
-                    text: `${view.displayName} РїСЂРѕСЃРјРѕС‚СЂРµР»(Р°) ${getMessageTypeLabel(message).toLowerCase()}`,
+                    text: `${view.displayName} просмотрел(а) ${getMessageTypeLabel(message).toLowerCase()}`,
                     avatarUrl: view.avatarUrl,
                 });
             }
@@ -1679,7 +1595,7 @@ function buildHistoryEntries() {
             id: `sticker-${sticker.id}`,
             kind: "sticker",
             createdAt: sticker.createdAt,
-            text: `${sticker.createdByUsername || "РЎРѕР·РґР°С‚РµР»СЊ"} РґРѕР±Р°РІРёР»(Р°) СЃС‚РёРєРµСЂ: ${sticker.name || "РЎС‚РёРєРµСЂ"}`,
+            text: `${sticker.createdByUsername || "Создатель"} добавил(а) стикер: ${sticker.name || "Стикер"}`,
             avatarUrl: sticker.imageUrl,
         });
     }
@@ -1748,24 +1664,24 @@ function openViewsModal(messageId) {
                     <article class="viewer-row">
                         <img src="${escapeHtml(assetUrl(view.avatarUrl || defaultAvatar(view.username || "user")))}" alt="avatar" />
                         <div>
-                            <strong>${escapeHtml(view.displayName || view.username || "РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ")}</strong>
+                            <strong>${escapeHtml(view.displayName || view.username || "Пользователь")}</strong>
                             <span>${escapeHtml(formatDateTime(view.viewedAt))}</span>
                         </div>
                     </article>
                 `).join("")}
             </div>
         `
-        : `<p class="hint">РџРѕРєР° РЅРёРєС‚Рѕ РЅРµ РїСЂРѕСЃРјРѕС‚СЂРµР» СЌС‚Рѕ СЃРѕРѕР±С‰РµРЅРёРµ.</p>`;
+        : `<p class="hint">Пока никто не просмотрел это сообщение.</p>`;
 
     openInfoModal({
-        title: "РџСЂРѕСЃРјРѕС‚СЂС‹ СЃРѕРѕР±С‰РµРЅРёСЏ",
+        title: "Просмотры сообщения",
         html,
     });
 }
 
 function renderMessages() {
     if (!state.messages.length) {
-        setInnerHtmlAndRepair(dom.messages, `<p class="hint">РџРѕРєР° РЅРµС‚ СЃРѕРѕР±С‰РµРЅРёР№</p>`);
+        setInnerHtmlAndRepair(dom.messages, `<p class="hint">Пока нет сообщений</p>`);
         return;
     }
 
@@ -1774,7 +1690,7 @@ function renderMessages() {
         const cls = ["msg", isSelf ? "self" : "", message.type === "system" ? "system" : ""].join(" ").trim();
         const header = message.sender
             ? `<div class="msg-head"><span>${escapeHtml(message.sender.displayName || message.sender.username)}</span><span>${formatTime(message.createdAt)}</span></div>`
-            : `<div class="msg-head"><span>РЎРёСЃС‚РµРјР°</span><span>${formatTime(message.createdAt)}</span></div>`;
+            : `<div class="msg-head"><span>Система</span><span>${formatTime(message.createdAt)}</span></div>`;
         const reply = renderReplyCard(message.replyTo);
         const isDeleted = Boolean(message.isDeleted || message.type === "deleted");
 
@@ -1799,21 +1715,21 @@ function renderMessages() {
         const video = !isDeleted && message.type === "video" && mediaUrl
             ? `
                 <div class="msg-media-card msg-video-card">
-                    <div class="msg-voice-head">рџЋ¬ Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ</div>
+                    <div class="msg-voice-head">🎬 Видеосообщение</div>
                     <video class="msg-video" controls preload="metadata" playsinline src="${escapeHtml(mediaUrl)}"></video>
                 </div>
             `
             : "";
         const text = isDeleted
-            ? `<div class="msg-deleted-copy">РЎРѕРѕР±С‰РµРЅРёРµ СѓРґР°Р»РµРЅРѕ</div>`
+            ? `<div class="msg-deleted-copy">Сообщение удалено</div>`
             : message.text
                 ? `<div>${escapeHtml(message.text)}</div>`
                 : "";
         const actions = message.type !== "system"
             ? `
                 <div class="msg-actions">
-                    <button type="button" class="msg-action-btn" data-reply-message-id="${message.id}" ${isDeleted ? "disabled" : ""}>РћС‚РІРµС‚РёС‚СЊ</button>
-                    ${canDeleteMessage(message) ? `<button type="button" class="msg-action-btn danger" data-delete-message-id="${message.id}">РЈРґР°Р»РёС‚СЊ</button>` : ""}
+                    <button type="button" class="msg-action-btn" data-reply-message-id="${message.id}" ${isDeleted ? "disabled" : ""}>Ответить</button>
+                    ${canDeleteMessage(message) ? `<button type="button" class="msg-action-btn danger" data-delete-message-id="${message.id}">Удалить</button>` : ""}
                 </div>
             `
             : "";
@@ -1838,9 +1754,9 @@ function renderMembers() {
 
     const membersHtml = state.members.map((member) => {
         const roleBadge = member.role === "owner"
-            ? "<span class='badge'>РЎРѕР·РґР°С‚РµР»СЊ</span>"
+            ? "<span class='badge'>Создатель</span>"
             : member.role === "admin"
-                ? "<span class='badge'>РђРґРјРёРЅ</span>"
+                ? "<span class='badge'>Админ</span>"
                 : "";
         return `
             <div class="member-item">
@@ -1849,7 +1765,7 @@ function renderMembers() {
                     <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
                     <div class="hint member-status-line">
                         <span class="status-dot ${isOnline(member.id) ? "online" : "offline"}"></span>
-                        <span>@${escapeHtml(member.username)} В· ${isOnline(member.id) ? "РћРЅР»Р°Р№РЅ" : "РћС„С„Р»Р°Р№РЅ"}</span>
+                        <span>@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Оффлайн"}</span>
                     </div>
                 </div>
             </div>
@@ -1860,46 +1776,46 @@ function renderMembers() {
         ? historyEntries.map((entry) => `
             <article class="history-item">
                 <div class="history-avatar">
-                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>вЏ±</span>`}
+                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>РІРЏВ±</span>`}
                 </div>
                 <div class="history-copy">
-                    <strong>${escapeHtml(entry.kind === "view" ? "РџСЂРѕСЃРјРѕС‚СЂ" : entry.kind === "sticker" ? "РЎС‚РёРєРµСЂ" : "РЎРѕР±С‹С‚РёРµ")}</strong>
+                    <strong>${escapeHtml(entry.kind === "view" ? "Просмотр" : entry.kind === "sticker" ? "Стикер" : "Событие")}</strong>
                     <span>${escapeHtml(entry.text)}</span>
                 </div>
                 <time>${escapeHtml(formatDateTime(entry.createdAt))}</time>
             </article>
         `).join("")
-        : `<p class="hint">РСЃС‚РѕСЂРёСЏ РїРѕСЏРІРёС‚СЃСЏ РїРѕСЃР»Рµ СЃРѕРѕР±С‰РµРЅРёР№, РїСЂРѕСЃРјРѕС‚СЂРѕРІ Рё РґРѕР±Р°РІР»РµРЅРёСЏ СЃС‚РёРєРµСЂРѕРІ.</p>`;
+        : `<p class="hint">История появится после сообщений, просмотров и добавления стикеров.</p>`;
     const stickerPackHtml = state.chatStickers.length
         ? `
             <div class="sticker-pack-grid">
                 ${state.chatStickers.map((sticker) => `
-                    <button type="button" class="sticker-pack-item" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}">
-                        <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}" />
+                    <button type="button" class="sticker-pack-item" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                        <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
                     </button>
                 `).join("")}
             </div>
         `
-        : `<p class="hint">РЎС‚РёРєРµСЂРѕРІ РїРѕРєР° РЅРµС‚.</p>`;
+        : `<p class="hint">Стикеров пока нет.</p>`;
 
     setInnerHtmlAndRepair(dom.membersBox, `
         <section class="sidebar-section">
             <div class="sidebar-section-head">
-                <h3>РСЃС‚РѕСЂРёСЏ</h3>
+                <h3>История</h3>
                 <span>${historyEntries.length}</span>
             </div>
             <div class="history-list">${historyHtml}</div>
         </section>
         <section class="sidebar-section">
             <div class="sidebar-section-head">
-                <h3>РЈС‡Р°СЃС‚РЅРёРєРё</h3>
+                <h3>Участники</h3>
                 <span>${state.members.length}</span>
             </div>
-            <div class="members-list">${membersHtml || "<p class='hint'>РЈС‡Р°СЃС‚РЅРёРєРѕРІ РїРѕРєР° РЅРµС‚</p>"}</div>
+            <div class="members-list">${membersHtml || "<p class='hint'>Участников пока нет</p>"}</div>
         </section>
         <section class="sidebar-section">
             <div class="sidebar-section-head">
-                <h3>РЎС‚РёРєРµСЂС‹</h3>
+                <h3>Стикеры</h3>
                 <span>${state.chatStickers.length}</span>
             </div>
             ${stickerPackHtml}
@@ -1911,10 +1827,10 @@ function renderMembers() {
 
     setInnerHtmlAndRepair(dom.chatActions, `
         <div style="display:grid;gap:8px">
-            <button id="myChatProfileBtn" type="button" class="btn ghost">РќРёРє Рё Р°РІР°С‚Р°СЂ РІ С‡Р°С‚Рµ</button>
-            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
-            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">РџСЂР°РІР° СѓС‡Р°СЃС‚РЅРёРєР°</button>` : ""}
-            ${canAddStickers ? `<button id="addStickerToPackBtn" type="button" class="btn ghost">Р”РѕР±Р°РІРёС‚СЊ СЃС‚РёРєРµСЂ РІ РїР°Рє</button>` : ""}
+            <button id="myChatProfileBtn" type="button" class="btn ghost">Ник и аватар в чате</button>
+            ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Добавить участника</button>` : ""}
+            ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">Права участника</button>` : ""}
+            ${canAddStickers ? `<button id="addStickerToPackBtn" type="button" class="btn ghost">Добавить стикер в пак</button>` : ""}
         </div>
     `);
 
@@ -1925,7 +1841,7 @@ function renderMembers() {
     for (const button of dom.membersBox.querySelectorAll("[data-send-sticker-id]")) {
         button.addEventListener("click", () => {
             sendStickerFromPack(button.dataset.sendStickerId).catch((error) => {
-                toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ СЃС‚РёРєРµСЂ.");
+                toast(error.message || "Не удалось отправить стикер.");
             });
         });
     }
@@ -2142,7 +2058,7 @@ async function login(event) {
             // ignore
         });
         armNotificationPromptOnInteraction();
-        toast(`Р’С…РѕРґ РІС‹РїРѕР»РЅРµРЅ: @${state.me.username}`);
+        toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
         toast(error.message);
@@ -2158,7 +2074,7 @@ async function register(event) {
 
     try {
         if (!dom.registerPrivacy?.checked) {
-            toast("РќСѓР¶РЅРѕ РїСЂРёРЅСЏС‚СЊ РїРѕР»РёС‚РёРєСѓ РєРѕРЅС„РёРґРµРЅС†РёР°Р»СЊРЅРѕСЃС‚Рё.");
+            toast("Нужно принять политику конфиденциальности.");
             return;
         }
         if (submitBtn) submitBtn.disabled = true;
@@ -2185,7 +2101,7 @@ async function register(event) {
             // ignore
         });
         armNotificationPromptOnInteraction();
-        toast(`РђРєРєР°СѓРЅС‚ СЃРѕР·РґР°РЅ: @${state.me.username}`);
+        toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
         if (dom.registerPrivacy) {
             dom.registerPrivacy.checked = false;
@@ -2247,18 +2163,18 @@ async function openNewPrivateChat() {
         const usersData = await api("/api/users/search?limit=100");
         const users = usersData.users || [];
         if (!users.length) {
-            toast("РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.");
+            toast("Нет доступных пользователей.");
             return;
         }
 
         const payload = await openModal({
-            title: "РќРѕРІС‹Р№ Р»РёС‡РЅС‹Р№ С‡Р°С‚",
-            submitLabel: "РЎРѕР·РґР°С‚СЊ",
+            title: "Новый личный чат",
+            submitLabel: "Создать",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
+                    label: "Пользователь",
                     required: true,
                     options: users.map((user) => ({
                         value: user.id,
@@ -2286,20 +2202,20 @@ async function openNewGroupChat() {
         const users = usersData.users || [];
 
         const payload = await openModal({
-            title: "РЎРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ",
-            submitLabel: "РЎРѕР·РґР°С‚СЊ",
+            title: "Создать группу",
+            submitLabel: "Создать",
             fields: [
                 {
                     name: "name",
-                    label: "РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹",
+                    label: "Название группы",
                     required: true,
-                    placeholder: "РќР°РїСЂРёРјРµСЂ: РљРѕРјР°РЅРґР° MIRX",
+                    placeholder: "Например: Команда MIRX",
                 },
                 {
                     name: "memberIds",
                     type: "select",
                     multiple: true,
-                    label: "РЈС‡Р°СЃС‚РЅРёРєРё",
+                    label: "Участники",
                     options: users.map((user) => ({
                         value: user.id,
                         label: `@${user.username}`,
@@ -2370,7 +2286,7 @@ async function saveProfileFromSheet(event) {
             await loadChats();
         }
         closeProfileSheet();
-        toast("РџСЂРѕС„РёР»СЊ РѕР±РЅРѕРІР»С‘РЅ.");
+        toast("Профиль обновлён.");
     } catch (error) {
         toast(error.message);
     } finally {
@@ -2383,17 +2299,17 @@ async function openMyChatProfile() {
 
     const meMember = state.members.find((member) => member.id === state.me.id);
     if (!meMember) {
-        toast("Р’С‹ РЅРµ РЅР°Р№РґРµРЅС‹ РІ СЃРїРёСЃРєРµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ.");
+        toast("Вы не найдены в списке участников.");
         return;
     }
 
     try {
         const payload = await openModal({
-            title: "РќРёРє Рё Р°РІР°С‚Р°СЂ РІ СЌС‚РѕРј С‡Р°С‚Рµ",
-            submitLabel: "РџСЂРёРјРµРЅРёС‚СЊ",
+            title: "Ник и аватар в этом чате",
+            submitLabel: "Применить",
             fields: [
-                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: meMember.groupNick || "" },
-                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: meMember.groupAvatarUrl || "" },
+                { name: "groupNick", label: "Ник в чате", value: meMember.groupNick || "" },
+                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: meMember.groupAvatarUrl || "" },
             ],
         });
 
@@ -2407,7 +2323,7 @@ async function openMyChatProfile() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РџСЂРѕС„РёР»СЊ РІ С‡Р°С‚Рµ РѕР±РЅРѕРІР»С‘РЅ.");
+        toast("Профиль в чате обновлён.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -2441,18 +2357,18 @@ async function openAddMemberModal() {
         candidates = Array.from(uniqueById.values());
 
         if (!candidates.length) {
-            toast("РќРµС‚ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ РґР»СЏ РґРѕР±Р°РІР»РµРЅРёСЏ.");
+            toast("Нет зарегистрированных пользователей для добавления.");
             return;
         }
 
         const payload = await openModal({
-            title: "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°",
-            submitLabel: "Р”РѕР±Р°РІРёС‚СЊ",
+            title: "Добавить участника",
+            submitLabel: "Добавить",
             fields: [
                 {
                     name: "userId",
                     type: "select",
-                    label: "Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹Р№ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ",
+                    label: "Зарегистрированный пользователь",
                     required: true,
                     options: candidates.map((user) => ({ value: user.id, label: `@${user.username} | ID ${user.id}` })),
                 },
@@ -2466,7 +2382,7 @@ async function openAddMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РЈС‡Р°СЃС‚РЅРёРє РґРѕР±Р°РІР»РµРЅ.");
+        toast("Участник добавлен.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -2476,19 +2392,19 @@ async function openManageMemberModal() {
 
     const candidates = state.members.filter((member) => member.id !== state.me.id);
     if (!candidates.length) {
-        toast("РќРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РґР»СЏ РЅР°СЃС‚СЂРѕР№РєРё.");
+        toast("Нет участников для настройки.");
         return;
     }
 
     try {
         const pick = await openModal({
-            title: "Р’С‹Р±РµСЂРёС‚Рµ СѓС‡Р°СЃС‚РЅРёРєР°",
-            submitLabel: "Р”Р°Р»РµРµ",
+            title: "Выберите участника",
+            submitLabel: "Далее",
             fields: [
                 {
                     name: "memberId",
                     type: "select",
-                    label: "РЈС‡Р°СЃС‚РЅРёРє",
+                    label: "Участник",
                     required: true,
                     options: candidates.map((member) => ({
                         value: member.id,
@@ -2502,44 +2418,44 @@ async function openManageMemberModal() {
         if (!target) return;
 
         const payload = await openModal({
-            title: `РџСЂР°РІР°: @${target.username}`,
-            submitLabel: "РЎРѕС…СЂР°РЅРёС‚СЊ",
+            title: `Права: @${target.username}`,
+            submitLabel: "Сохранить",
             fields: [
                 {
                     name: "role",
                     type: "select",
-                    label: "Р РѕР»СЊ",
+                    label: "Роль",
                     value: target.role,
                     options: state.myRole === "owner"
                         ? [
-                            { value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" },
-                            { value: "admin", label: "РђРґРјРёРЅ" },
-                            { value: "owner", label: "РЎРѕР·РґР°С‚РµР»СЊ" },
+                            { value: "member", label: "Участник" },
+                            { value: "admin", label: "Админ" },
+                            { value: "owner", label: "Создатель" },
                         ]
-                        : [{ value: "member", label: "РЈС‡Р°СЃС‚РЅРёРє" }],
+                        : [{ value: "member", label: "Участник" }],
                 },
-                { name: "groupNick", label: "РќРёРє РІ С‡Р°С‚Рµ", value: target.groupNick || "" },
-                { name: "groupAvatarUrl", label: "РђРІР°С‚Р°СЂ РІ С‡Р°С‚Рµ (URL)", value: target.groupAvatarUrl || "" },
+                { name: "groupNick", label: "Ник в чате", value: target.groupNick || "" },
+                { name: "groupAvatarUrl", label: "Аватар в чате (URL)", value: target.groupAvatarUrl || "" },
                 {
                     name: "canSend",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ РїРёСЃР°С‚СЊ",
+                    label: "Может писать",
                     value: target.permissions.canSend ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
                 {
                     name: "canSendMedia",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ РѕС‚РїСЂР°РІР»СЏС‚СЊ С„РѕС‚Рѕ",
+                    label: "Может отправлять фото",
                     value: target.permissions.canSendMedia ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
                 {
                     name: "canStartCalls",
                     type: "select",
-                    label: "РњРѕР¶РµС‚ Р·РІРѕРЅРёС‚СЊ",
+                    label: "Может звонить",
                     value: target.permissions.canStartCalls ? "true" : "false",
-                    options: [{ value: "true", label: "Р”Р°" }, { value: "false", label: "РќРµС‚" }],
+                    options: [{ value: "true", label: "Да" }, { value: "false", label: "Нет" }],
                 },
             ],
         });
@@ -2558,7 +2474,7 @@ async function openManageMemberModal() {
 
         await openChat(state.currentChatId);
         await loadChats();
-        toast("РџСЂР°РІР° РѕР±РЅРѕРІР»РµРЅС‹.");
+        toast("Права обновлены.");
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
     }
@@ -2600,7 +2516,7 @@ function getSelectedAttachment() {
             file: state.selectedVideo,
             field: "video",
             endpoint: "video",
-            label: "рџЋ¬ Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ",
+            label: "🎬 Видеосообщение",
             meta: state.selectedAttachmentMeta || {},
             previewUrl: state.selectedAttachmentPreviewUrl,
         };
@@ -2611,7 +2527,7 @@ function getSelectedAttachment() {
             file: state.selectedAudio,
             field: "audio",
             endpoint: "audio",
-            label: "рџЋ™ Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ",
+            label: "🎙 Голосовое сообщение",
             meta: state.selectedAttachmentMeta || {},
             previewUrl: state.selectedAttachmentPreviewUrl,
         };
@@ -2622,7 +2538,7 @@ function getSelectedAttachment() {
             file: state.selectedSticker,
             field: "sticker",
             endpoint: "sticker",
-            label: "рџ§© РЎС‚РёРєРµСЂ",
+            label: "🧩 Стикер",
             meta: state.selectedAttachmentMeta || {},
             previewUrl: state.selectedAttachmentPreviewUrl,
         };
@@ -2633,7 +2549,7 @@ function getSelectedAttachment() {
             file: state.selectedImage,
             field: "image",
             endpoint: "image",
-            label: "рџ“· Р¤РѕС‚Рѕ",
+            label: "📷 Фото",
             meta: state.selectedAttachmentMeta || {},
             previewUrl: state.selectedAttachmentPreviewUrl,
         };
@@ -2691,10 +2607,10 @@ function updateRecordingButtons() {
     dom.recordVoiceBtn?.classList.toggle("busy", state.recording.isSending);
     dom.recordVideoBtn?.classList.toggle("busy", state.recording.isSending);
     if (dom.recordVoiceBtn) {
-        dom.recordVoiceBtn.textContent = isVoiceRecording ? "вЏ№" : "рџЋ™";
+        dom.recordVoiceBtn.textContent = isVoiceRecording ? "⏹" : "🎙";
     }
     if (dom.recordVideoBtn) {
-        dom.recordVideoBtn.textContent = isVideoRecording ? "вЏ№" : "рџЋ¬";
+        dom.recordVideoBtn.textContent = isVideoRecording ? "⏹" : "🎬";
     }
 }
 
@@ -2777,19 +2693,19 @@ async function sendStickerFromPack(stickerId) {
 
 async function startRecording(kind) {
     if (!state.currentChatId) {
-        toast("РЎРЅР°С‡Р°Р»Р° РѕС‚РєСЂРѕР№С‚Рµ С‡Р°С‚.");
+        toast("Сначала откройте чат.");
         return;
     }
     if (!state.myPermissions?.canSend || !state.myPermissions?.canSendMedia) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ РјРµРґРёР° РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
+        toast("У вас нет прав на отправку медиа в этом чате.");
         return;
     }
     if (callState.active) {
-        toast("РќРµР»СЊР·СЏ Р·Р°РїРёСЃС‹РІР°С‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РІРѕ РІСЂРµРјСЏ Р·РІРѕРЅРєР°.");
+        toast("Нельзя записывать сообщение во время звонка.");
         return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-        toast("Р­С‚РѕС‚ Р±СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ Р·Р°РїРёСЃСЊ РіРѕР»РѕСЃР° Рё РІРёРґРµРѕ.");
+        toast("Этот браузер не поддерживает запись голоса и видео.");
         return;
     }
     if (state.recording.isSending) {
@@ -2800,7 +2716,7 @@ async function startRecording(kind) {
             await stopRecording({ sendAfterStop: true });
             return;
         }
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰СѓСЋ Р·Р°РїРёСЃСЊ.");
+        toast("Сначала завершите текущую запись.");
         return;
     }
 
@@ -2889,7 +2805,7 @@ async function startRecording(kind) {
                 file,
                 field: snapshot.kind,
                 endpoint: snapshot.kind,
-                label: snapshot.kind === "video" ? "рџЋ¬ Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ" : "рџЋ™ Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ",
+                label: snapshot.kind === "video" ? "🎬 Видеосообщение" : "🎙 Голосовое сообщение",
                 meta: {
                     recorded: true,
                     durationMs: snapshot.durationMs,
@@ -2907,7 +2823,7 @@ async function startRecording(kind) {
                 clearSelectedAttachments();
                 renderSelectedImage();
             } catch (error) {
-                toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ Р·Р°РїРёСЃСЊ.");
+                toast(error.message || "Не удалось отправить запись.");
                 renderSelectedImage();
             } finally {
                 state.recording.isSending = false;
@@ -2928,7 +2844,7 @@ async function startRecording(kind) {
     } catch (error) {
         resetRecordingState();
         renderSelectedImage();
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°С‡Р°С‚СЊ Р·Р°РїРёСЃСЊ.");
+        toast(error.message || "Не удалось начать запись.");
     }
 }
 
@@ -2951,11 +2867,11 @@ async function sendMessage(event) {
     event.preventDefault();
     if (!state.currentChatId) return;
     if (!state.myPermissions?.canSend) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№ РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
+        toast("У вас нет прав на отправку сообщений в этом чате.");
         return;
     }
     if (state.recording.kind) {
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ Р·Р°РїРёСЃСЊ.");
+        toast("Сначала завершите запись.");
         return;
     }
 
@@ -2964,7 +2880,7 @@ async function sendMessage(event) {
 
     if (!text && !attachment) return;
     if (attachment && !state.myPermissions?.canSendMedia) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ РјРµРґРёР° РІ СЌС‚РѕРј С‡Р°С‚Рµ.");
+        toast("У вас нет прав на отправку медиа в этом чате.");
         return;
     }
 
@@ -3003,18 +2919,18 @@ async function sendMessage(event) {
 
 function renderSelectedImage() {
     if (state.recording.kind) {
-        const label = state.recording.kind === "video" ? "Р’РёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ" : "Р“РѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ";
+        const label = state.recording.kind === "video" ? "Видеосообщение" : "Голосовое сообщение";
         dom.selectedImageBar.classList.remove("hidden");
         dom.selectedImageBar.innerHTML = `
             <div class="composer-status-card recording-card">
-                <div class="composer-status-icon">${state.recording.kind === "video" ? "рџЋ¬" : "рџЋ™"}</div>
+                <div class="composer-status-icon">${state.recording.kind === "video" ? "🎬" : "🎙"}</div>
                 <div class="composer-status-copy">
                     <strong>${label}</strong>
-                    <span>РРґС‘С‚ Р·Р°РїРёСЃСЊ В· ${formatDuration(state.recording.durationMs)}</span>
+                    <span>Идёт запись · ${formatDuration(state.recording.durationMs)}</span>
                 </div>
                 <div class="composer-status-actions">
-                    <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">РћС‚РјРµРЅР°</button>
-                    <button type="button" id="finishRecordingBtn" class="btn primary compact-btn">РћС‚РїСЂР°РІРёС‚СЊ</button>
+                    <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">Отмена</button>
+                    <button type="button" id="finishRecordingBtn" class="btn primary compact-btn">Отправить</button>
                 </div>
             </div>
         `;
@@ -3042,10 +2958,10 @@ function renderSelectedImage() {
     const attachmentMeta = attachment?.meta || {};
     let preview = "";
     if (attachment?.kind === "image" && attachment.previewUrl) {
-        preview = `<img class="composer-preview-image" src="${escapeHtml(attachment.previewUrl)}" alt="РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ С„РѕС‚Рѕ" />`;
+        preview = `<img class="composer-preview-image" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр фото" />`;
     }
     if (attachment?.kind === "sticker" && attachment.previewUrl) {
-        preview = `<img class="composer-preview-sticker" src="${escapeHtml(attachment.previewUrl)}" alt="РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ СЃС‚РёРєРµСЂР°" />`;
+        preview = `<img class="composer-preview-sticker" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр стикера" />`;
     }
     if (attachment?.kind === "audio" && attachment.previewUrl) {
         preview = `<audio class="composer-preview-audio" controls preload="metadata" src="${escapeHtml(attachment.previewUrl)}"></audio>`;
@@ -3055,18 +2971,18 @@ function renderSelectedImage() {
     }
 
     const metaText = attachment && attachmentMeta.recorded
-        ? ` В· ${formatDuration(attachmentMeta.durationMs)}`
+        ? ` · ${formatDuration(attachmentMeta.durationMs)}`
         : "";
     const replyCard = replyTo
         ? `
             <div class="composer-status-card reply-card">
-                <div class="composer-status-icon">в†©</div>
+                <div class="composer-status-icon">↩</div>
                 <div class="composer-status-copy">
-                    <strong>РћС‚РІРµС‚ РЅР° ${escapeHtml(replyTo.sender?.displayName || replyTo.sender?.username || "СЃРѕРѕР±С‰РµРЅРёРµ")}</strong>
+                    <strong>Ответ на ${escapeHtml(replyTo.sender?.displayName || replyTo.sender?.username || "сообщение")}</strong>
                     <span>${escapeHtml(getReplySnippet(replyTo))}</span>
                 </div>
                 <div class="composer-status-actions">
-                    <button type="button" id="clearReplyBtn" class="btn ghost compact-btn">РћС‚РјРµРЅР°</button>
+                    <button type="button" id="clearReplyBtn" class="btn ghost compact-btn">Отмена</button>
                 </div>
             </div>
         `
@@ -3080,7 +2996,7 @@ function renderSelectedImage() {
                     <span>${escapeHtml(attachment.file.name)}</span>
                 </div>
                 <div class="composer-status-actions">
-                    <button type="button" id="clearImageBtn" class="btn ghost compact-btn">РЈР±СЂР°С‚СЊ</button>
+                    <button type="button" id="clearImageBtn" class="btn ghost compact-btn">Убрать</button>
                 </div>
                 ${preview}
             </div>
@@ -3108,8 +3024,8 @@ function renderEmojiPanel() {
     if (state.chatStickers.length) {
         groups.push({
             key: "stickers",
-            icon: "рџ§©",
-            title: "РЎС‚РёРєРµСЂС‹",
+            icon: "🧩",
+            title: "Стикеры",
             emojis: [],
         });
     }
@@ -3121,29 +3037,29 @@ function renderEmojiPanel() {
 
     if (currentGroup?.key === "stickers") {
         const stickers = query
-            ? state.chatStickers.filter((sticker) => String(sticker.name || "СЃС‚РёРєРµСЂ").toLowerCase().includes(query))
+            ? state.chatStickers.filter((sticker) => String(sticker.name || "стикер").toLowerCase().includes(query))
             : state.chatStickers;
         gridMarkup = stickers.length
             ? stickers.map((sticker) => `
-                <button type="button" class="sticker-choice" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}">
-                    <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}" />
-                    <span>${escapeHtml(sticker.name || "РЎС‚РёРєРµСЂ")}</span>
+                <button type="button" class="sticker-choice" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                    <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                    <span>${escapeHtml(sticker.name || "Стикер")}</span>
                 </button>
             `).join("")
-            : `<div class="emoji-empty">РЎС‚РёРєРµСЂРѕРІ РїРѕРєР° РЅРµС‚</div>`;
+            : `<div class="emoji-empty">Стикеров пока нет</div>`;
     } else {
         const emojis = query
             ? Array.from(new Set(groups.flatMap((group) => group.emojis))).filter((emoji) => emoji.includes(state.emojiQuery))
             : (currentGroup?.emojis || []);
         gridMarkup = emojis.length
-            ? emojis.map((emoji) => `<button type="button" class="emoji-choice" data-emoji="${emoji}" aria-label="Р’С‹Р±СЂР°С‚СЊ ${emoji}">${emoji}</button>`).join("")
-            : `<div class="emoji-empty">РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ</div>`;
+            ? emojis.map((emoji) => `<button type="button" class="emoji-choice" data-emoji="${emoji}" aria-label="Выбрать ${emoji}">${emoji}</button>`).join("")
+            : `<div class="emoji-empty">Ничего не найдено</div>`;
     }
 
     setInnerHtmlAndRepair(dom.emojiPanel, `
         <div class="emoji-panel-shell">
             <div class="emoji-panel-head">
-                <input type="search" id="emojiSearchInput" class="emoji-search-input" placeholder="${currentGroup?.key === "stickers" ? "РќР°Р№С‚Рё СЃС‚РёРєРµСЂ" : "РќР°Р№С‚Рё СЌРјРѕРґР·Рё"}" value="${escapeHtml(state.emojiQuery)}" />
+                <input type="search" id="emojiSearchInput" class="emoji-search-input" placeholder="${currentGroup?.key === "stickers" ? "Найти стикер" : "Найти эмодзи"}" value="${escapeHtml(state.emojiQuery)}" />
             </div>
             <div class="emoji-tabs" role="tablist">
                 ${availableGroups.map((group) => `
@@ -3174,10 +3090,10 @@ async function deleteMessage(messageId) {
     const message = findMessageById(messageId);
     if (!message || !state.currentChatId) return;
     if (!canDeleteMessage(message)) {
-        toast("РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° СѓРґР°Р»РµРЅРёРµ СЌС‚РѕРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ.");
+        toast("У вас нет прав на удаление этого сообщения.");
         return;
     }
-    if (!window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ?")) {
+    if (!window.confirm("Удалить сообщение для всех участников?")) {
         return;
     }
 
@@ -3194,7 +3110,7 @@ async function deleteMessage(messageId) {
         renderMessages();
         renderChats();
     } catch (error) {
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ.");
+        toast(error.message || "Не удалось удалить сообщение.");
     }
 }
 
@@ -3327,12 +3243,12 @@ function applyComposerPermissions() {
     if (dom.recordVideoBtn) dom.recordVideoBtn.disabled = recordLocked && !isRecording;
 
     dom.messageInput.placeholder = !hasChat
-        ? "Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚"
+        ? "Выберите чат"
         : isRecording
-            ? "Р—Р°РїРёСЃСЊ РёРґС‘С‚..."
+            ? "Запись идёт..."
             : canSend
-            ? "Р’РІРµРґРёС‚Рµ СЃРѕРѕР±С‰РµРЅРёРµ..."
-            : "РЈ РІР°СЃ РЅРµС‚ РїСЂР°РІ РЅР° РѕС‚РїСЂР°РІРєСѓ СЃРѕРѕР±С‰РµРЅРёР№";
+            ? "Введите сообщение..."
+            : "У вас нет прав на отправку сообщений";
 
     if (!canMedia && getSelectedAttachment()) {
         clearSelectedAttachments();
@@ -3453,7 +3369,7 @@ function handleTypingEvent(payload) {
 
 function getCallChatName(chatId) {
     const chat = state.chats.find((item) => item.id === chatId);
-    return chat ? getChatDisplayName(chat) : `Р§Р°С‚ #${chatId}`;
+    return chat ? getChatDisplayName(chat) : `Чат #${chatId}`;
 }
 
 function openCallOverlay() {
@@ -3524,12 +3440,12 @@ function renderCallParticipants() {
     });
 
     if (!participants.length) {
-        dom.callParticipants.innerHTML = `<p class="hint">Р’ Р·РІРѕРЅРєРµ РїРѕРєР° РЅРёРєРѕРіРѕ РЅРµС‚.</p>`;
+        dom.callParticipants.innerHTML = `<p class="hint">В звонке пока никого нет.</p>`;
         return;
     }
 
     dom.callParticipants.innerHTML = participants.map((participant) => {
-        const label = participant.id === state.me?.id ? "Р’С‹ РІ Р·РІРѕРЅРєРµ" : "Р’ Р·РІРѕРЅРєРµ";
+        const label = participant.id === state.me?.id ? "Вы в звонке" : "В звонке";
         const avatar = assetUrl(participant.avatarUrl || defaultAvatar(participant.username || `user_${participant.id}`));
         return `
             <article class="call-participant ${participant.id === state.me?.id ? "self" : ""}">
@@ -3606,8 +3522,8 @@ function updateRemoteTileLabel(userId) {
 
     const user = callState.participants.get(userId);
     if (!user) {
-        peer.name.textContent = `РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ ${userId}`;
-        peer.hint.textContent = "Р’ Р·РІРѕРЅРєРµ";
+        peer.name.textContent = `Пользователь ${userId}`;
+        peer.hint.textContent = "В звонке";
         return;
     }
 
@@ -3615,24 +3531,24 @@ function updateRemoteTileLabel(userId) {
     const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
     const hasAudio = peer.remoteStream.getAudioTracks().length > 0;
     peer.hint.textContent = hasVideo
-        ? "Р’РёРґРµРѕ Рё Р·РІСѓРє"
+        ? "Видео и звук"
         : hasAudio
-            ? "Р“РѕР»РѕСЃРѕРІРѕР№ Р·РІРѕРЅРѕРє"
-            : "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
+            ? "Голосовой звонок"
+            : "Подключение...";
 }
 
 function refreshCallUi() {
     if (!callState.active || !callState.chatId) return;
 
-    const roomMode = callState.mode === "video" ? "Р’РёРґРµРѕР·РІРѕРЅРѕРє" : "РђСѓРґРёРѕР·РІРѕРЅРѕРє";
+    const roomMode = callState.mode === "video" ? "Видеозвонок" : "Аудиозвонок";
     dom.callTitle.textContent = getCallChatName(callState.chatId);
     dom.callModeLabel.textContent = roomMode;
-    dom.callStatus.textContent = `РЈС‡Р°СЃС‚РЅРёРєРѕРІ: ${callState.participants.size} В· ${callState.micEnabled ? "РјРёРєСЂРѕС„РѕРЅ РІРєР»СЋС‡С‘РЅ" : "РјРёРєСЂРѕС„РѕРЅ РІС‹РєР»СЋС‡РµРЅ"}`;
+    dom.callStatus.textContent = `Участников: ${callState.participants.size} · ${callState.micEnabled ? "микрофон включён" : "микрофон выключен"}`;
     dom.callHintText.textContent = callState.cameraEnabled
-        ? "РљР°РјРµСЂР° Р°РєС‚РёРІРЅР°. РњРѕР¶РЅРѕ РїРµСЂРµРєР»СЋС‡Р°С‚СЊСЃСЏ РјРµР¶РґСѓ Р°СѓРґРёРѕ Рё РІРёРґРµРѕ РїСЂСЏРјРѕ РІРѕ РІСЂРµРјСЏ Р·РІРѕРЅРєР°."
-        : "РЎРµР№С‡Р°СЃ РёРґС‘С‚ Р°СѓРґРёРѕР·РІРѕРЅРѕРє. РљР°РјРµСЂСѓ РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ РІ Р»СЋР±РѕР№ РјРѕРјРµРЅС‚.";
-    dom.toggleMicBtn.textContent = callState.micEnabled ? "рџЋ™ РњРёРєСЂРѕС„РѕРЅ РІРєР»СЋС‡С‘РЅ" : "рџ”‡ РњРёРєСЂРѕС„РѕРЅ РІС‹РєР»СЋС‡РµРЅ";
-    dom.toggleCameraBtn.textContent = callState.cameraEnabled ? "рџ“· Р’С‹РєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ" : "рџ“№ Р’РєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ";
+        ? "Камера активна. Можно переключаться между аудио и видео прямо во время звонка."
+        : "Сейчас идёт аудиозвонок. Камеру можно включить в любой момент.";
+    dom.toggleMicBtn.textContent = callState.micEnabled ? "🎙 Микрофон включён" : "🔇 Микрофон выключен";
+    dom.toggleCameraBtn.textContent = callState.cameraEnabled ? "📷 Выключить камеру" : "📹 Включить камеру";
     dom.toggleMicBtn.classList.toggle("active", callState.micEnabled);
     dom.toggleCameraBtn.classList.toggle("active", callState.cameraEnabled);
 
@@ -3697,7 +3613,7 @@ async function addLocalTrackFromConstraints(kind, constraints) {
 
     if (!track) {
         stopRecordingStream(tempStream);
-        throw new Error(kind === "video" ? "РљР°РјРµСЂР° РЅРµРґРѕСЃС‚СѓРїРЅР°." : "РњРёРєСЂРѕС„РѕРЅ РЅРµРґРѕСЃС‚СѓРїРµРЅ.");
+        throw new Error(kind === "video" ? "Камера недоступна." : "Микрофон недоступен.");
     }
 
     if (!callState.localStream) {
@@ -3936,7 +3852,7 @@ async function handleCallJoined(payload) {
         await ensureLocalStream("audio");
         await syncAllPeerTracks();
     } catch (error) {
-        toast("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ РёР»Рё РєР°РјРµСЂРµ.");
+        toast("Не удалось получить доступ к микрофону или камере.");
         stopCall(true);
         return;
     }
@@ -4048,7 +3964,7 @@ function setRoomCallMode(mode) {
 async function toggleMic() {
     const audioTrack = getLocalAudioTrack();
     if (!audioTrack) {
-        toast("РњРёРєСЂРѕС„РѕРЅ РЅРµ РЅР°Р№РґРµРЅ.");
+        toast("Микрофон не найден.");
         return;
     }
 
@@ -4059,7 +3975,7 @@ async function toggleMic() {
 
 async function toggleCamera() {
     if (!callState.active) {
-        toast("РЎРЅР°С‡Р°Р»Р° РїРѕРґРєР»СЋС‡РёС‚РµСЃСЊ Рє Р·РІРѕРЅРєСѓ.");
+        toast("Сначала подключитесь к звонку.");
         return;
     }
 
@@ -4079,7 +3995,7 @@ async function toggleCamera() {
             }
 
             if (!videoTrack) {
-                throw new Error("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РєР°РјРµСЂСѓ.");
+                throw new Error("Не удалось получить камеру.");
             }
 
             videoTrack.enabled = true;
@@ -4099,13 +4015,13 @@ async function toggleCamera() {
 
         refreshCallUi();
     } catch (error) {
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РїРµСЂРµРєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ.");
+        toast(error.message || "Не удалось переключить камеру.");
     }
 }
 
 async function startCall() {
     if (!state.socket || !state.currentChatId) {
-        toast("РћС‚РєСЂРѕР№С‚Рµ С‡Р°С‚ Рё РґРѕР¶РґРёС‚РµСЃСЊ РїРѕРґРєР»СЋС‡РµРЅРёСЏ.");
+        toast("Откройте чат и дождитесь подключения.");
         return;
     }
 
@@ -4116,14 +4032,14 @@ async function startCall() {
             return;
         }
 
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
+        toast("Сначала завершите текущий звонок.");
         return;
     }
 
     try {
         await ensureLocalStream("audio");
     } catch {
-        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ.");
+        toast("Нужен доступ к микрофону.");
         return;
     }
 
@@ -4132,7 +4048,7 @@ async function startCall() {
     callState.mode = "audio";
     openCallOverlay();
     dom.callTitle.textContent = getCallChatName(state.currentChatId);
-    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
+    dom.callStatus.textContent = "Подключение...";
     state.socket.emit("call:start", { chatId: state.currentChatId, mode: "audio" });
 }
 
@@ -4146,14 +4062,14 @@ async function joinExistingCall() {
             return;
         }
 
-        toast("РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.");
+        toast("Сначала завершите текущий звонок.");
         return;
     }
 
     try {
         await ensureLocalStream("audio");
     } catch {
-        toast("РќСѓР¶РµРЅ РґРѕСЃС‚СѓРї Рє РјРёРєСЂРѕС„РѕРЅСѓ.");
+        toast("Нужен доступ к микрофону.");
         return;
     }
 
@@ -4161,7 +4077,7 @@ async function joinExistingCall() {
     callState.cameraEnabled = false;
     openCallOverlay();
     dom.callTitle.textContent = getCallChatName(state.currentChatId);
-    dom.callStatus.textContent = "РџРѕРґРєР»СЋС‡РµРЅРёРµ...";
+    dom.callStatus.textContent = "Подключение...";
     state.socket.emit("call:join", { chatId: state.currentChatId });
 }
 
@@ -4244,13 +4160,13 @@ function connectSocket() {
 
     socket.on("connect_error", (error) => {
         if (error?.message === "AUTH_FAILED") {
-            toast("РЎРµСЃСЃРёСЏ СѓСЃС‚Р°СЂРµР»Р°. Р’РѕР№РґРёС‚Рµ СЃРЅРѕРІР°.");
+            toast("Сессия устарела. Войдите снова.");
             logout().catch(() => {
                 // ignore
             });
             return;
         }
-        toast("РџСЂРѕР±Р»РµРјР° СЃ realtime-СЃРѕРµРґРёРЅРµРЅРёРµРј. РРґС‘С‚ РїРµСЂРµРїРѕРґРєР»СЋС‡РµРЅРёРµ...");
+        toast("Проблема с realtime-соединением. Идёт переподключение...");
     });
 
     socket.on("disconnect", () => {
@@ -4367,7 +4283,7 @@ function connectSocket() {
             state.chatStickers.unshift(sticker);
             renderMembers();
             renderEmojiPanel();
-            toast(`РќРѕРІС‹Р№ СЃС‚РёРєРµСЂ РґРѕСЃС‚СѓРїРµРЅ: ${sticker.name || "РЎС‚РёРєРµСЂ"}`);
+            toast(`Новый стикер доступен: ${sticker.name || "Стикер"}`);
         }
     });
 
@@ -4424,10 +4340,10 @@ function connectSocket() {
                 state.currentChatId !== chatId &&
                 !callState.active
             ) {
-                notifyBrowser(targetChat?.type === "group" ? "РќРѕРІС‹Р№ СЌС„РёСЂ РІ РіСЂСѓРїРїРµ" : "Р’С…РѕРґСЏС‰РёР№ Р·РІРѕРЅРѕРє", {
+                notifyBrowser(targetChat?.type === "group" ? "Новый эфир в группе" : "Входящий звонок", {
                     body: targetChat?.type === "group"
-                        ? `${getCallChatName(chatId)}: РЅР°С‡Р°Р»СЃСЏ ${callMode === "video" ? "РІРёРґРµРѕС‡Р°С‚" : "РіРѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚"}`
-                        : `${getCallChatName(chatId)} Р·РІРѕРЅРёС‚ РІР°Рј`,
+                        ? `${getCallChatName(chatId)}: начался ${callMode === "video" ? "видеочат" : "голосовой чат"}`
+                        : `${getCallChatName(chatId)} звонит вам`,
                     requireInteraction: true,
                     tag: `call-${chatId}`,
                     data: { url: `/?chat=${chatId}&call=1` },
@@ -4467,7 +4383,7 @@ function connectSocket() {
 
         state.callStatusByChat.delete(id);
         if (callState.active && callState.chatId === id) {
-            toast("Р—РІРѕРЅРѕРє Р·Р°РІРµСЂС€С‘РЅ.");
+            toast("Звонок завершён.");
             stopCall(false);
         }
 
@@ -4535,7 +4451,7 @@ function connectSocket() {
         if (!callState.active) {
             closeCallOverlay();
         }
-        toast(message || "РћС€РёР±РєР° Р·РІРѕРЅРєР°.");
+        toast(message || "Ошибка звонка.");
     });
 
     socket.on("webrtc:offer", async (payload) => {
@@ -4560,7 +4476,7 @@ function bindUi() {
     dom.registerForm.addEventListener("submit", register);
     dom.resumeSessionContinue?.addEventListener("click", () => {
         continueStoredMobileSession().catch((error) => {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРґРѕР»Р¶РёС‚СЊ СЃРµСЃСЃРёСЋ.");
+            toast(error.message || "Не удалось продолжить сессию.");
         });
     });
     dom.resumeSessionSwitch?.addEventListener("click", switchStoredMobileSession);
@@ -4605,7 +4521,7 @@ function bindUi() {
                 await sendStickerFromPack(stickerButton.dataset.searchStickerId);
             }
         } catch (error) {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РїРѕР»РЅРёС‚СЊ РґРµР№СЃС‚РІРёРµ РёР· РїРѕРёСЃРєР°.");
+            toast(error.message || "Не удалось выполнить действие из поиска.");
         }
     });
 
@@ -4652,7 +4568,7 @@ function bindUi() {
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
-            toast("Р’С‹Р±РµСЂРёС‚Рµ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.");
+            toast("Выберите изображение.");
             dom.imageInput.value = "";
             return;
         }
@@ -4670,7 +4586,7 @@ function bindUi() {
                 optimizedSize: optimized.size,
             });
         } catch (error) {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С„РѕС‚Рѕ.");
+            toast(error.message || "Не удалось подготовить фото.");
             dom.imageInput.value = "";
         }
     });
@@ -4680,7 +4596,7 @@ function bindUi() {
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
-            toast("Р”Р»СЏ СЃС‚РёРєРµСЂР° РЅСѓР¶РЅРѕ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.");
+            toast("Для стикера нужно изображение.");
             dom.stickerInput.value = "";
             return;
         }
@@ -4697,7 +4613,7 @@ function bindUi() {
 
             if (state.currentChat?.type === "group") {
                 if (state.myRole !== "owner") {
-                    toast("Р”РѕР±Р°РІР»СЏС‚СЊ РЅРѕРІС‹Рµ СЃС‚РёРєРµСЂС‹ РІ РіСЂСѓРїРїСѓ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ.");
+                    toast("Добавлять новые стикеры в группу может только создатель.");
                     dom.stickerInput.value = "";
                     return;
                 }
@@ -4713,7 +4629,7 @@ function bindUi() {
                     state.chatStickers.unshift(response.sticker);
                     renderMembers();
                     renderEmojiPanel();
-                    toast("РЎС‚РёРєРµСЂ РґРѕР±Р°РІР»РµРЅ РІ РѕР±С‰РёР№ РїР°Рє РіСЂСѓРїРїС‹.");
+                    toast("Стикер добавлен в общий пак группы.");
                 }
                 dom.stickerInput.value = "";
                 return;
@@ -4725,20 +4641,20 @@ function bindUi() {
                 sticker: true,
             });
         } catch (error) {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ СЃС‚РёРєРµСЂ.");
+            toast(error.message || "Не удалось создать стикер.");
             dom.stickerInput.value = "";
         }
     });
 
     dom.recordVoiceBtn?.addEventListener("click", () => {
         startRecording("audio").catch((error) => {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїРёСЃР°С‚СЊ РіРѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ.");
+            toast(error.message || "Не удалось записать голосовое сообщение.");
         });
     });
 
     dom.recordVideoBtn?.addEventListener("click", () => {
         startRecording("video").catch((error) => {
-            toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїРёСЃР°С‚СЊ РІРёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ.");
+            toast(error.message || "Не удалось записать видеосообщение.");
         });
     });
 
@@ -4769,7 +4685,7 @@ function bindUi() {
         const stickerButton = event.target.closest("[data-send-sticker-id]");
         if (stickerButton) {
             sendStickerFromPack(stickerButton.dataset.sendStickerId).catch((error) => {
-                toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ СЃС‚РёРєРµСЂ.");
+                toast(error.message || "Не удалось отправить стикер.");
             });
             dom.emojiPanel.classList.add("hidden");
             return;
@@ -4822,7 +4738,7 @@ function bindUi() {
         }
 
         if (!file.type.startsWith("image/")) {
-            toast("Р”Р»СЏ РїСЂРѕС„РёР»СЏ РјРѕР¶РЅРѕ Р·Р°РіСЂСѓР·РёС‚СЊ С‚РѕР»СЊРєРѕ РёР·РѕР±СЂР°Р¶РµРЅРёРµ.");
+            toast("Для профиля можно загрузить только изображение.");
             state.profileAvatarFile = null;
             clearProfileAvatarPreviewUrl();
             dom.profileEditorAvatarInput.value = "";
@@ -4961,7 +4877,7 @@ async function init() {
     renderSelectedImage();
 
     if (!window.location.hostname.includes("localhost") && !API_BASE_URL) {
-        toast("Р—Р°РїСѓС‰РµРЅ single-host СЂРµР¶РёРј: frontend Рё backend РґРѕР»Р¶РЅС‹ Р±С‹С‚СЊ РґРѕСЃС‚СѓРїРЅС‹ РЅР° РѕРґРЅРѕРј РґРѕРјРµРЅРµ.");
+        toast("Запущен single-host режим: frontend и backend должны быть доступны на одном домене.");
     }
 
     registerServiceWorker().catch(() => {
@@ -4991,7 +4907,7 @@ async function init() {
             state.pendingCallChatId = shouldOpenIncomingCall ? chatIdFromUrl : null;
         }
     } catch (error) {
-        toast(error.message || "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ С‡Р°С‚С‹.");
+        toast(error.message || "Не удалось загрузить чаты.");
     }
 }
 

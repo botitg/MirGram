@@ -89,7 +89,7 @@
         </div>
         <header class="topbar">
             <div class="topbar-left">
-                <button id="mobileChatsToggle" class="bar-btn mobile-only" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє С‡Р°С‚РѕРІ" aria-expanded="false">
+                <button id="mobileChatsToggle" class="bar-btn mobile-only" type="button" aria-label="Открыть список чатов" aria-expanded="false">
                     <span></span>
                     <span></span>
                     <span></span>
@@ -105,17 +105,17 @@
 
             <div class="topbar-search-wrap">
                 <div class="topbar-search">
-                    <input id="chatSearch" class="search" type="search" placeholder="РџРѕРёСЃРє С‡Р°С‚РѕРІ, Р»СЋРґРµР№, @username Рё СЃС‚РёРєРµСЂРѕРІ" autocomplete="off" />
+                    <input id="chatSearch" class="search" type="search" placeholder="Поиск чатов, людей, @username и стикеров" autocomplete="off" />
                 </div>
                 <div id="searchPanel" class="search-panel hidden"></div>
             </div>
 
             <div class="topbar-actions">
-                <button id="profileOpenBtn" class="profile-trigger" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ">
-                    <img id="profileOpenAvatar" src="/assets/icon.png" alt="РџСЂРѕС„РёР»СЊ" />
-                    <span id="profileOpenName">РџСЂРѕС„РёР»СЊ</span>
+                <button id="profileOpenBtn" class="profile-trigger" type="button" aria-label="Открыть профиль">
+                    <img id="profileOpenAvatar" src="/assets/icon.png" alt="Профиль" />
+                    <span id="profileOpenName">Профиль</span>
                 </button>
-                <button id="logoutBtn" class="btn ghost" type="button">Р’С‹Р№С‚Рё</button>
+                <button id="logoutBtn" class="btn ghost" type="button">Выйти</button>
             </div>
         </header>
 
@@ -124,9 +124,9 @@
                 <div class="panel-head panel-head-split">
                     <div>
                         <div class="panel-eyebrow">MIRX hub</div>
-                        <h2>Р§Р°С‚С‹</h2>
+                        <h2>Чаты</h2>
                     </div>
-                    <button id="mobileChatsClose" class="btn ghost mobile-only mobile-panel-close" type="button">Р—Р°РєСЂС‹С‚СЊ</button>
+                    <button id="mobileChatsClose" class="btn ghost mobile-only mobile-panel-close" type="button">Закрыть</button>
                 </div>
                 <div id="chatList" class="chat-list"></div>
             </aside>
@@ -134,8 +134,8 @@
             <section class="panel chat-panel">
                 <div id="emptyState" class="empty-state">
                     <div class="empty-mark">вњ¦</div>
-                    <h3>Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚</h3>
-                    <p>РќР°С‡РЅРёС‚Рµ Р»РёС‡РЅСѓСЋ РїРµСЂРµРїРёСЃРєСѓ, СЃРѕР·РґР°Р№С‚Рµ РіСЂСѓРїРїСѓ РёР»Рё РѕС‚РєСЂРѕР№С‚Рµ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ РґРёР°Р»РѕРі.</p>
+                    <h3>Выберите чат</h3>
+                    <p>Начните личную переписку, создайте группу или откройте уже существующий диалог.</p>
                 </div>
 
                 <div id="chatView" class="chat-view hidden">
@@ -144,26 +144,26 @@
                     <div id="messages" class="messages"></div>
 
                     <form id="composer" class="composer">
-                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="РћС‚РєСЂС‹С‚СЊ СЌРјРѕРґР·Рё">рџЉ</button>
+                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
                         <div id="emojiPanel" class="emoji-panel hidden"></div>
-                        <input id="messageInput" type="text" maxlength="4000" placeholder="РЎРѕРѕР±С‰РµРЅРёРµ" inputmode="text" enterkeyhint="send" autocomplete="off" />
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="Сообщение" inputmode="text" enterkeyhint="send" autocomplete="off" />
                         <div class="composer-tools">
-                            <label class="btn ghost file-btn" aria-label="РџСЂРёРєСЂРµРїРёС‚СЊ С„РѕС‚Рѕ">
-                                рџ“·
+                            <label class="btn ghost file-btn" aria-label="Прикрепить фото">
+                                📷
                                 <input id="imageInput" type="file" accept="image/*" hidden />
                             </label>
-                            <label class="btn ghost file-btn" aria-label="Р”РѕР±Р°РІРёС‚СЊ СЃС‚РёРєРµСЂ">
-                                рџ§©
+                            <label class="btn ghost file-btn" aria-label="Добавить стикер">
+                                🧩
                                 <input id="stickerInput" type="file" accept="image/*" hidden />
                             </label>
-                            <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Р—Р°РїРёСЃР°С‚СЊ РіРѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ">
-                                рџЋ™
+                            <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать голосовое сообщение">
+                                🎙
                             </button>
-                            <button id="recordVideoBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Р—Р°РїРёСЃР°С‚СЊ РІРёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ">
-                                рџЋ¬
+                            <button id="recordVideoBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать видеосообщение">
+                                🎬
                             </button>
                         </div>
-                        <button class="btn primary" type="submit">РћС‚РїСЂР°РІРёС‚СЊ</button>
+                        <button class="btn primary" type="submit">Отправить</button>
                     </form>
                     <div id="selectedImageBar" class="selected-image hidden"></div>
                 </div>
@@ -173,7 +173,7 @@
                 <div class="panel-head info-panel-head">
                     <div>
                         <div class="panel-eyebrow">Telegram-like info</div>
-                        <h2>РџСЂРѕС„РёР»СЊ Рё РёСЃС‚РѕСЂРёСЏ</h2>
+                        <h2>Профиль и история</h2>
                     </div>
                 </div>
                 <div id="profileBox" class="profile-box"></div>
@@ -182,59 +182,59 @@
             </aside>
         </main>
 
-        <button id="mobileDrawerBackdrop" class="mobile-drawer-backdrop hidden" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє С‡Р°С‚РѕРІ"></button>
+        <button id="mobileDrawerBackdrop" class="mobile-drawer-backdrop hidden" type="button" aria-label="Закрыть список чатов"></button>
     </section>
 
     <section id="profileSheet" class="profile-sheet hidden" aria-hidden="true">
-        <button id="profileSheetBackdrop" class="profile-sheet-backdrop" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"></button>
+        <button id="profileSheetBackdrop" class="profile-sheet-backdrop" type="button" aria-label="Закрыть профиль"></button>
         <div class="profile-sheet-panel">
             <div class="profile-sheet-head">
                 <div>
-                    <div class="panel-eyebrow">Р’Р°С€ РїСЂРѕС„РёР»СЊ</div>
-                    <h3>РђРєРєР°СѓРЅС‚ MIRX</h3>
+                    <div class="panel-eyebrow">Ваш профиль</div>
+                    <h3>Аккаунт MIRX</h3>
                 </div>
-                <button id="profileSheetClose" class="btn ghost" type="button">Р—Р°РєСЂС‹С‚СЊ</button>
+                <button id="profileSheetClose" class="btn ghost" type="button">Закрыть</button>
             </div>
             <form id="profileEditorForm" class="profile-editor-form">
                 <div class="profile-hero">
-                    <img id="profileEditorAvatarPreview" src="/assets/icon.png" alt="РђРІР°С‚Р°СЂ" />
+                    <img id="profileEditorAvatarPreview" src="/assets/icon.png" alt="Аватар" />
                     <div>
-                        <strong id="profileEditorNamePreview">РџСЂРѕС„РёР»СЊ</strong>
-                        <p id="profileEditorBioPreview">РќР°СЃС‚СЂРѕР№С‚Рµ РЅРёРє, С„РѕС‚Рѕ, РѕРїРёСЃР°РЅРёРµ Рё РїР°СЂРѕР»СЊ.</p>
+                        <strong id="profileEditorNamePreview">Профиль</strong>
+                        <p id="profileEditorBioPreview">Настройте ник, фото, описание и пароль.</p>
                     </div>
                 </div>
 
                 <div class="profile-editor-grid">
                     <label>
-                        РќРёРє
+                        Ник
                         <input id="profileEditorUsername" name="username" type="text" required minlength="3" maxlength="24" />
                     </label>
                     <div class="profile-upload-card profile-editor-wide">
                         <div>
-                            <div class="profile-upload-title">Р¤РѕС‚Рѕ РїСЂРѕС„РёР»СЏ</div>
-                            <p class="hint">Р—Р°РіСЂСѓР·РёС‚Рµ JPG, PNG РёР»Рё WEBP. РЎСЃС‹Р»РєР° Р±РѕР»СЊС€Рµ РЅРµ РЅСѓР¶РЅР°.</p>
+                            <div class="profile-upload-title">Фото профиля</div>
+                            <p class="hint">Загрузите JPG, PNG или WEBP. Ссылка больше не нужна.</p>
                         </div>
                         <div class="profile-upload-actions">
                             <label class="btn ghost profile-upload-btn">
-                                Р—Р°РіСЂСѓР·РёС‚СЊ С„РѕС‚Рѕ
+                                Загрузить фото
                                 <input id="profileEditorAvatarInput" name="avatar" type="file" accept="image/*" hidden />
                             </label>
                         </div>
-                        <div id="profileEditorAvatarMeta" class="hint">Р¤Р°Р№Р» РЅРµ РІС‹Р±СЂР°РЅ</div>
+                        <div id="profileEditorAvatarMeta" class="hint">Файл не выбран</div>
                     </div>
                     <label class="profile-editor-wide">
-                        РћРїРёСЃР°РЅРёРµ
-                        <textarea id="profileEditorBio" name="bio" rows="4" maxlength="280" placeholder="Р Р°СЃСЃРєР°Р¶РёС‚Рµ Рѕ СЃРµР±Рµ РёР»Рё РѕСЃС‚Р°РІСЊС‚Рµ СЃС‚Р°С‚СѓСЃ."></textarea>
+                        Описание
+                        <textarea id="profileEditorBio" name="bio" rows="4" maxlength="280" placeholder="Расскажите о себе или оставьте статус."></textarea>
                     </label>
                     <label class="profile-editor-wide">
-                        РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ
-                        <input id="profileEditorPassword" name="password" type="password" minlength="6" placeholder="РћСЃС‚Р°РІСЊС‚Рµ РїСѓСЃС‚С‹Рј, РµСЃР»Рё РјРµРЅСЏС‚СЊ РЅРµ РЅСѓР¶РЅРѕ" />
+                        Новый пароль
+                        <input id="profileEditorPassword" name="password" type="password" minlength="6" placeholder="Оставьте пустым, если менять не нужно" />
                     </label>
                 </div>
 
                 <div class="profile-editor-actions">
-                    <button type="button" id="profileEditorCancel" class="btn ghost">РћС‚РјРµРЅР°</button>
-                    <button type="submit" class="btn primary">РЎРѕС…СЂР°РЅРёС‚СЊ РїСЂРѕС„РёР»СЊ</button>
+                    <button type="button" id="profileEditorCancel" class="btn ghost">Отмена</button>
+                    <button type="submit" class="btn primary">Сохранить профиль</button>
                 </div>
             </form>
         </div>
@@ -243,14 +243,14 @@
     <div id="modal" class="modal hidden">
         <div class="modal-card">
             <div class="modal-head">
-                <h3 id="modalTitle">Р¤РѕСЂРјР°</h3>
-                <button id="modalClose" type="button" class="btn ghost">Р—Р°РєСЂС‹С‚СЊ</button>
+                <h3 id="modalTitle">Форма</h3>
+                <button id="modalClose" type="button" class="btn ghost">Закрыть</button>
             </div>
             <form id="modalForm">
                 <div id="modalFields" class="modal-fields"></div>
                 <div class="modal-actions">
-                    <button id="modalCancel" type="button" class="btn ghost">РћС‚РјРµРЅР°</button>
-                    <button type="submit" class="btn primary" id="modalSubmit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+                    <button id="modalCancel" type="button" class="btn ghost">Отмена</button>
+                    <button type="submit" class="btn primary" id="modalSubmit">Сохранить</button>
                 </div>
             </form>
         </div>
@@ -261,11 +261,11 @@
             <div class="call-head">
                 <div>
                     <div class="panel-eyebrow">MIRX call</div>
-                    <h3 id="callTitle">Р—РІРѕРЅРѕРє</h3>
+                    <h3 id="callTitle">Звонок</h3>
                 </div>
                 <div class="call-head-actions">
-                    <button id="callDismissBtn" class="btn ghost" type="button">РЎРІРµСЂРЅСѓС‚СЊ</button>
-                    <button id="leaveCallBtn" class="btn danger" type="button">Р—Р°РІРµСЂС€РёС‚СЊ</button>
+                    <button id="callDismissBtn" class="btn ghost" type="button">Свернуть</button>
+                    <button id="leaveCallBtn" class="btn danger" type="button">Завершить</button>
                 </div>
             </div>
             <div class="call-body">
@@ -273,11 +273,11 @@
                     <div class="call-main">
                         <article class="call-local-card">
                             <div class="call-video-shell">
-                                <img id="localAvatarFallback" class="call-avatar-fallback" src="/assets/icon.png" alt="Р’С‹" />
+                                <img id="localAvatarFallback" class="call-avatar-fallback" src="/assets/icon.png" alt="Вы" />
                                 <video id="localVideo" autoplay muted playsinline></video>
                             </div>
                             <div class="call-feed-meta">
-                                <strong>Р’С‹</strong>
+                                <strong>Вы</strong>
                                 <span id="callStatus" class="hint"></span>
                             </div>
                         </article>
@@ -285,19 +285,19 @@
                     </div>
                     <aside class="call-sidebar">
                         <div class="call-sidebar-card">
-                            <div class="call-sidebar-label">Р РµР¶РёРј</div>
-                            <strong id="callModeLabel">РђСѓРґРёРѕР·РІРѕРЅРѕРє</strong>
-                            <p id="callHintText" class="hint">Р’Рѕ РІСЂРµРјСЏ Р·РІРѕРЅРєР° РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ Рё РїРµСЂРµР№С‚Рё РІ РІРёРґРµРѕ.</p>
+                            <div class="call-sidebar-label">Режим</div>
+                            <strong id="callModeLabel">Аудиозвонок</strong>
+                            <p id="callHintText" class="hint">Во время звонка можно включить камеру и перейти в видео.</p>
                         </div>
                         <div class="call-sidebar-card">
-                            <div class="call-sidebar-label">РЈС‡Р°СЃС‚РЅРёРєРё</div>
+                            <div class="call-sidebar-label">Участники</div>
                             <div id="callParticipants" class="call-participants"></div>
                         </div>
                     </aside>
                 </div>
                 <div class="call-controls">
-                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">рџЋ™ РњРёРєСЂРѕС„РѕРЅ</button>
-                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">рџ“№ РљР°РјРµСЂР°</button>
+                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">🎙 Микрофон</button>
+                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">📹 Камера</button>
                 </div>
             </div>
         </div>
