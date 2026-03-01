@@ -11,64 +11,78 @@
 <body>
     <div id="toasts" class="toasts"></div>
 
-    <section id="authScreen" class="screen auth-screen">
+        <section id="authScreen" class="screen auth-screen">
         <div class="auth-shell">
             <aside class="auth-showcase">
-                <div class="auth-showcase-badge">single-host realtime</div>
-                <h1>MIRX</h1>
-                <p>Онлайн-мессенджер с группами, личными чатами, фото, эмодзи и звонками в одном приложении.</p>
+                <div class="auth-scene-frame">
+                    <canvas id="authSceneCanvas" class="auth-scene-canvas" aria-hidden="true"></canvas>
+                    <div class="auth-scene-grid" aria-hidden="true"></div>
 
-                <div class="auth-showcase-grid">
-                    <article class="showcase-card">
-                        <strong>Личные чаты</strong>
-                        <span>Быстрые ЛС и живая переписка без перезагрузки.</span>
+                    <div class="auth-scene-overlay">
+                        <div class="auth-showcase-badge">three.js secure scene</div>
+                        <div class="auth-signal"><span></span> protected realtime access</div>
+                        <h1>MIRX</h1>
+                        <p>Минималистичный вход в мессенджер с живыми чатами, звонками и медиа, где аккаунты хранятся в постоянной базе, а файлы можно уводить в Cloudinary.</p>
+                    </div>
+
+                    <article class="auth-float-card auth-float-card-top">
+                        <strong>Single host</strong>
+                        <span>Один деплой, один домен, <code>npm start</code> для всего приложения.</span>
                     </article>
-                    <article class="showcase-card">
-                        <strong>Группы</strong>
-                        <span>Создатели групп, роли участников и права доступа.</span>
-                    </article>
-                    <article class="showcase-card">
-                        <strong>Медиа</strong>
-                        <span>Отправка фото и эмодзи прямо в диалогах.</span>
-                    </article>
-                    <article class="showcase-card">
-                        <strong>Звонки</strong>
-                        <span>Голосовой и видеорежим в реальном времени.</span>
+
+                    <article class="auth-float-card auth-float-card-bottom">
+                        <strong>Cloud media</strong>
+                        <span>Аватары, фото, голосовые и видео не теряются после рестартов.</span>
                     </article>
                 </div>
 
-                <div class="auth-preview">
-                    <div class="auth-preview-top">
-                        <span class="auth-preview-pill">MIRX secure chat</span>
-                        <span class="auth-preview-status">online</span>
-                    </div>
-                    <div class="auth-preview-chat">
-                        <div class="preview-bubble preview-bubble-in">Добро пожаловать. Вход и регистрация работают сразу.</div>
-                        <div class="preview-bubble preview-bubble-out">Фото, группы и профиль теперь в одном месте.</div>
-                    </div>
+                <div class="auth-showcase-grid">
+                    <article class="showcase-card">
+                        <strong>Realtime</strong>
+                        <span>Группы, личные чаты, звонки и уведомления без перезагрузки страницы.</span>
+                    </article>
+                    <article class="showcase-card">
+                        <strong>Private sign-in</strong>
+                        <span>На телефонах больше не должно быть молчаливого входа в чужую сессию.</span>
+                    </article>
+                    <article class="showcase-card">
+                        <strong>Cloudinary ready</strong>
+                        <span>Медиа можно вынести с диска сервера в постоянное внешнее хранилище.</span>
+                    </article>
+                    <article class="showcase-card">
+                        <strong>Minimal UI</strong>
+                        <span>Чистый экран входа без визуального мусора, с акцентом на форму и статус доступа.</span>
+                    </article>
                 </div>
             </aside>
 
             <div class="auth-card">
+                <div class="auth-card-topline">Protected access</div>
+
                 <div class="brand">
                     <img src="/assets/icon.png" alt="MIRX" />
                     <div>
                         <h1>MIRX</h1>
-                        <p>Войдите или создайте аккаунт</p>
+                        <p>Безопасный вход по нику и паролю</p>
                     </div>
+                </div>
+
+                <div class="auth-card-copy">
+                    <h2>Войдите или создайте аккаунт</h2>
+                    <p>Минимум полей на входе. Профиль, аватар и остальные настройки редактируются уже внутри приложения.</p>
                 </div>
 
                 <section id="resumeSessionCard" class="resume-session hidden">
                     <div class="resume-session-copy">
                         <span class="resume-session-badge">Безопасный вход</span>
-                        <strong>На этом телефоне уже сохранён аккаунт</strong>
-                        <p>Подтвердите вход, чтобы не попасть в чужой аккаунт автоматически.</p>
+                        <strong>На этом устройстве уже сохранена активная сессия</strong>
+                        <p>Подтвердите вход вручную или выберите другой аккаунт. Чужая сессия не должна открываться автоматически.</p>
                     </div>
                     <div class="resume-session-user">
                         <img id="resumeSessionAvatar" src="/assets/icon.png" alt="Аккаунт" />
                         <div>
                             <strong id="resumeSessionUsername">@user</strong>
-                            <span id="resumeSessionHint">Продолжить вход в один тап или выбрать другой аккаунт.</span>
+                            <span id="resumeSessionHint">Продолжите вход в один тап или переключитесь на другой аккаунт.</span>
                         </div>
                     </div>
                     <div class="resume-session-actions">
@@ -92,7 +106,7 @@
                         <input name="password" type="password" required minlength="6" placeholder="Введите пароль" />
                     </label>
                     <button type="submit" class="btn primary auth-submit">Войти в MIRX</button>
-                    <p class="hint">Для приватности на телефонах чужая сессия не сохраняется и после выхода из страницы потребуется вход заново.</p>
+                    <p class="hint">На телефонах сессия не должна автоматически подхватывать чужой аккаунт после закрытия страницы.</p>
                 </form>
 
                 <form id="registerForm" class="auth-form">
@@ -107,6 +121,12 @@
                     <button type="submit" class="btn primary auth-submit">Создать аккаунт</button>
                     <p class="hint">Разрешены буквы, цифры, <code>_</code>, <code>.</code> и <code>-</code>.</p>
                 </form>
+
+                <div class="auth-card-foot">
+                    <span class="auth-card-chip">JWT session</span>
+                    <span class="auth-card-chip">Postgres storage</span>
+                    <span class="auth-card-chip">Cloud media ready</span>
+                </div>
             </div>
         </div>
     </section>
@@ -114,7 +134,7 @@
     <section id="appScreen" class="screen app-screen hidden">
         <header class="topbar">
             <div class="topbar-left">
-                <button id="mobileChatsToggle" class="bar-btn mobile-only" type="button" aria-label="Открыть список чатов" aria-expanded="false">
+                <button id="mobileChatsToggle" class="bar-btn mobile-only" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє С‡Р°С‚РѕРІ" aria-expanded="false">
                     <span></span>
                     <span></span>
                     <span></span>
@@ -128,14 +148,14 @@
                 </div>
             </div>
             <div class="topbar-search">
-                <input id="chatSearch" class="search" type="search" placeholder="Поиск чатов, людей и групп" />
+                <input id="chatSearch" class="search" type="search" placeholder="РџРѕРёСЃРє С‡Р°С‚РѕРІ, Р»СЋРґРµР№ Рё РіСЂСѓРїРї" />
             </div>
             <div class="topbar-actions">
-                <button id="profileOpenBtn" class="profile-trigger" type="button" aria-label="Открыть профиль">
-                    <img id="profileOpenAvatar" src="/assets/icon.png" alt="Профиль" />
-                    <span id="profileOpenName">Профиль</span>
+                <button id="profileOpenBtn" class="profile-trigger" type="button" aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ">
+                    <img id="profileOpenAvatar" src="/assets/icon.png" alt="РџСЂРѕС„РёР»СЊ" />
+                    <span id="profileOpenName">РџСЂРѕС„РёР»СЊ</span>
                 </button>
-                <button id="logoutBtn" class="btn ghost" type="button">Выйти</button>
+                <button id="logoutBtn" class="btn ghost" type="button">Р’С‹Р№С‚Рё</button>
             </div>
         </header>
 
@@ -144,18 +164,18 @@
                 <div class="panel-head panel-head-split">
                     <div>
                         <div class="panel-eyebrow">MIRX hub</div>
-                        <h2>Чаты</h2>
+                        <h2>Р§Р°С‚С‹</h2>
                     </div>
-                    <button id="mobileChatsClose" class="btn ghost mobile-only mobile-panel-close" type="button">Закрыть</button>
+                    <button id="mobileChatsClose" class="btn ghost mobile-only mobile-panel-close" type="button">Р—Р°РєСЂС‹С‚СЊ</button>
                 </div>
                 <div id="chatList" class="chat-list"></div>
             </aside>
 
             <section class="panel chat-panel">
                 <div id="emptyState" class="empty-state">
-                    <div class="empty-mark">✦</div>
-                    <h3>Выберите чат</h3>
-                    <p>Начните личную переписку, создайте группу или откройте уже существующий диалог.</p>
+                    <div class="empty-mark">вњ¦</div>
+                    <h3>Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚</h3>
+                    <p>РќР°С‡РЅРёС‚Рµ Р»РёС‡РЅСѓСЋ РїРµСЂРµРїРёСЃРєСѓ, СЃРѕР·РґР°Р№С‚Рµ РіСЂСѓРїРїСѓ РёР»Рё РѕС‚РєСЂРѕР№С‚Рµ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ РґРёР°Р»РѕРі.</p>
                 </div>
 
                 <div id="chatView" class="chat-view hidden">
@@ -164,26 +184,26 @@
                     <div id="messages" class="messages"></div>
 
                     <form id="composer" class="composer">
-                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
+                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="РћС‚РєСЂС‹С‚СЊ СЌРјРѕРґР·Рё">рџЉ</button>
                         <div id="emojiPanel" class="emoji-panel hidden"></div>
-                        <input id="messageInput" type="text" maxlength="4000" placeholder="Введите сообщение..." inputmode="text" enterkeyhint="send" autocomplete="off" />
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="Р’РІРµРґРёС‚Рµ СЃРѕРѕР±С‰РµРЅРёРµ..." inputmode="text" enterkeyhint="send" autocomplete="off" />
                         <div class="composer-tools">
-                            <label class="btn ghost file-btn" aria-label="Прикрепить фото">
-                                📷
+                            <label class="btn ghost file-btn" aria-label="РџСЂРёРєСЂРµРїРёС‚СЊ С„РѕС‚Рѕ">
+                                рџ“·
                                 <input id="imageInput" type="file" accept="image/*" hidden />
                             </label>
-                            <label class="btn ghost file-btn" aria-label="Создать стикер">
-                                🧩
+                            <label class="btn ghost file-btn" aria-label="РЎРѕР·РґР°С‚СЊ СЃС‚РёРєРµСЂ">
+                                рџ§©
                                 <input id="stickerInput" type="file" accept="image/*" hidden />
                             </label>
-                            <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать голосовое сообщение">
-                                🎙
+                            <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Р—Р°РїРёСЃР°С‚СЊ РіРѕР»РѕСЃРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ">
+                                рџЋ™
                             </button>
-                            <button id="recordVideoBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать видеосообщение">
-                                🎬
+                            <button id="recordVideoBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Р—Р°РїРёСЃР°С‚СЊ РІРёРґРµРѕСЃРѕРѕР±С‰РµРЅРёРµ">
+                                рџЋ¬
                             </button>
                         </div>
-                        <button class="btn primary" type="submit">Отправить</button>
+                        <button class="btn primary" type="submit">РћС‚РїСЂР°РІРёС‚СЊ</button>
                     </form>
                     <div id="selectedImageBar" class="selected-image hidden"></div>
                 </div>
@@ -191,7 +211,7 @@
 
             <aside class="panel info-panel">
                 <div class="panel-head">
-                    <h2>История</h2>
+                    <h2>РСЃС‚РѕСЂРёСЏ</h2>
                 </div>
                 <div id="profileBox" class="profile-box"></div>
                 <div id="chatActions" class="chat-actions"></div>
@@ -199,59 +219,59 @@
             </aside>
         </main>
 
-        <button id="mobileDrawerBackdrop" class="mobile-drawer-backdrop hidden" type="button" aria-label="Закрыть список чатов"></button>
+        <button id="mobileDrawerBackdrop" class="mobile-drawer-backdrop hidden" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє С‡Р°С‚РѕРІ"></button>
     </section>
 
     <section id="profileSheet" class="profile-sheet hidden" aria-hidden="true">
-        <button id="profileSheetBackdrop" class="profile-sheet-backdrop" type="button" aria-label="Закрыть профиль"></button>
+        <button id="profileSheetBackdrop" class="profile-sheet-backdrop" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"></button>
         <div class="profile-sheet-panel">
             <div class="profile-sheet-head">
                 <div>
-                    <div class="panel-eyebrow">Ваш профиль</div>
-                    <h3>Аккаунт MIRX</h3>
+                    <div class="panel-eyebrow">Р’Р°С€ РїСЂРѕС„РёР»СЊ</div>
+                    <h3>РђРєРєР°СѓРЅС‚ MIRX</h3>
                 </div>
-                <button id="profileSheetClose" class="btn ghost" type="button">Закрыть</button>
+                <button id="profileSheetClose" class="btn ghost" type="button">Р—Р°РєСЂС‹С‚СЊ</button>
             </div>
             <form id="profileEditorForm" class="profile-editor-form">
                 <div class="profile-hero">
-                    <img id="profileEditorAvatarPreview" src="/assets/icon.png" alt="Аватар" />
+                    <img id="profileEditorAvatarPreview" src="/assets/icon.png" alt="РђРІР°С‚Р°СЂ" />
                     <div>
-                        <strong id="profileEditorNamePreview">Профиль</strong>
-                        <p id="profileEditorBioPreview">Настройте ник, фото, описание и пароль.</p>
+                        <strong id="profileEditorNamePreview">РџСЂРѕС„РёР»СЊ</strong>
+                        <p id="profileEditorBioPreview">РќР°СЃС‚СЂРѕР№С‚Рµ РЅРёРє, С„РѕС‚Рѕ, РѕРїРёСЃР°РЅРёРµ Рё РїР°СЂРѕР»СЊ.</p>
                     </div>
                 </div>
 
                 <div class="profile-editor-grid">
                     <label>
-                        Ник
+                        РќРёРє
                         <input id="profileEditorUsername" name="username" type="text" required minlength="3" maxlength="24" />
                     </label>
                     <div class="profile-upload-card profile-editor-wide">
                         <div>
-                            <div class="profile-upload-title">Фото профиля</div>
-                            <p class="hint">Загрузите JPG, PNG или WEBP. Ссылка больше не нужна.</p>
+                            <div class="profile-upload-title">Р¤РѕС‚Рѕ РїСЂРѕС„РёР»СЏ</div>
+                            <p class="hint">Р—Р°РіСЂСѓР·РёС‚Рµ JPG, PNG РёР»Рё WEBP. РЎСЃС‹Р»РєР° Р±РѕР»СЊС€Рµ РЅРµ РЅСѓР¶РЅР°.</p>
                         </div>
                         <div class="profile-upload-actions">
                             <label class="btn ghost profile-upload-btn">
-                                Загрузить фото
+                                Р—Р°РіСЂСѓР·РёС‚СЊ С„РѕС‚Рѕ
                                 <input id="profileEditorAvatarInput" name="avatar" type="file" accept="image/*" hidden />
                             </label>
                         </div>
-                        <div id="profileEditorAvatarMeta" class="hint">Файл не выбран</div>
+                        <div id="profileEditorAvatarMeta" class="hint">Р¤Р°Р№Р» РЅРµ РІС‹Р±СЂР°РЅ</div>
                     </div>
                     <label class="profile-editor-wide">
-                        Описание
-                        <textarea id="profileEditorBio" name="bio" rows="4" maxlength="280" placeholder="Расскажите о себе или оставьте статус."></textarea>
+                        РћРїРёСЃР°РЅРёРµ
+                        <textarea id="profileEditorBio" name="bio" rows="4" maxlength="280" placeholder="Р Р°СЃСЃРєР°Р¶РёС‚Рµ Рѕ СЃРµР±Рµ РёР»Рё РѕСЃС‚Р°РІСЊС‚Рµ СЃС‚Р°С‚СѓСЃ."></textarea>
                     </label>
                     <label class="profile-editor-wide">
-                        Новый пароль
-                        <input id="profileEditorPassword" name="password" type="password" minlength="6" placeholder="Оставьте пустым, если менять не нужно" />
+                        РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ
+                        <input id="profileEditorPassword" name="password" type="password" minlength="6" placeholder="РћСЃС‚Р°РІСЊС‚Рµ РїСѓСЃС‚С‹Рј, РµСЃР»Рё РјРµРЅСЏС‚СЊ РЅРµ РЅСѓР¶РЅРѕ" />
                     </label>
                 </div>
 
                 <div class="profile-editor-actions">
-                    <button type="button" id="profileEditorCancel" class="btn ghost">Отмена</button>
-                    <button type="submit" class="btn primary">Сохранить профиль</button>
+                    <button type="button" id="profileEditorCancel" class="btn ghost">РћС‚РјРµРЅР°</button>
+                    <button type="submit" class="btn primary">РЎРѕС…СЂР°РЅРёС‚СЊ РїСЂРѕС„РёР»СЊ</button>
                 </div>
             </form>
         </div>
@@ -260,14 +280,14 @@
     <div id="modal" class="modal hidden">
         <div class="modal-card">
             <div class="modal-head">
-                <h3 id="modalTitle">Форма</h3>
-                <button id="modalClose" type="button" class="btn ghost">Закрыть</button>
+                <h3 id="modalTitle">Р¤РѕСЂРјР°</h3>
+                <button id="modalClose" type="button" class="btn ghost">Р—Р°РєСЂС‹С‚СЊ</button>
             </div>
             <form id="modalForm">
                 <div id="modalFields" class="modal-fields"></div>
                 <div class="modal-actions">
-                    <button id="modalCancel" type="button" class="btn ghost">Отмена</button>
-                    <button type="submit" class="btn primary" id="modalSubmit">Сохранить</button>
+                    <button id="modalCancel" type="button" class="btn ghost">РћС‚РјРµРЅР°</button>
+                    <button type="submit" class="btn primary" id="modalSubmit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
                 </div>
             </form>
         </div>
@@ -278,11 +298,11 @@
             <div class="call-head">
                 <div>
                     <div class="panel-eyebrow">MIRX call</div>
-                    <h3 id="callTitle">Звонок</h3>
+                    <h3 id="callTitle">Р—РІРѕРЅРѕРє</h3>
                 </div>
                 <div class="call-head-actions">
-                    <button id="callDismissBtn" class="btn ghost" type="button">Свернуть</button>
-                    <button id="leaveCallBtn" class="btn danger" type="button">Завершить</button>
+                    <button id="callDismissBtn" class="btn ghost" type="button">РЎРІРµСЂРЅСѓС‚СЊ</button>
+                    <button id="leaveCallBtn" class="btn danger" type="button">Р—Р°РІРµСЂС€РёС‚СЊ</button>
                 </div>
             </div>
             <div class="call-body">
@@ -290,11 +310,11 @@
                     <div class="call-main">
                         <article class="call-local-card">
                             <div class="call-video-shell">
-                                <img id="localAvatarFallback" class="call-avatar-fallback" src="/assets/icon.png" alt="Вы" />
+                                <img id="localAvatarFallback" class="call-avatar-fallback" src="/assets/icon.png" alt="Р’С‹" />
                                 <video id="localVideo" autoplay muted playsinline></video>
                             </div>
                             <div class="call-feed-meta">
-                                <strong>Вы</strong>
+                                <strong>Р’С‹</strong>
                                 <span id="callStatus" class="hint"></span>
                             </div>
                         </article>
@@ -302,26 +322,29 @@
                     </div>
                     <aside class="call-sidebar">
                         <div class="call-sidebar-card">
-                            <div class="call-sidebar-label">Режим</div>
-                            <strong id="callModeLabel">Аудиозвонок</strong>
-                            <p id="callHintText" class="hint">Внутри звонка можно включить камеру.</p>
+                            <div class="call-sidebar-label">Р РµР¶РёРј</div>
+                            <strong id="callModeLabel">РђСѓРґРёРѕР·РІРѕРЅРѕРє</strong>
+                            <p id="callHintText" class="hint">Р’РЅСѓС‚СЂРё Р·РІРѕРЅРєР° РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ РєР°РјРµСЂСѓ.</p>
                         </div>
                         <div class="call-sidebar-card">
-                            <div class="call-sidebar-label">Участники</div>
+                            <div class="call-sidebar-label">РЈС‡Р°СЃС‚РЅРёРєРё</div>
                             <div id="callParticipants" class="call-participants"></div>
                         </div>
                     </aside>
                 </div>
                 <div class="call-controls">
-                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">🎙 Микрофон</button>
-                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">📹 Камера</button>
+                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">рџЋ™ РњРёРєСЂРѕС„РѕРЅ</button>
+                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">рџ“№ РљР°РјРµСЂР°</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="/config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
+    <script src="/js/auth-scene.js"></script>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>
+

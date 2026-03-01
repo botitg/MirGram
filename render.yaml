@@ -13,6 +13,8 @@ services:
         generateValue: true
       - key: APP_BASE_URL
         sync: false
+      - key: REQUIRE_PERSISTENT_DB
+        value: "true"
       - key: AUTO_JOIN_DEFAULT_CHATS
         value: "false"
       - key: VAPID_PUBLIC_KEY
@@ -21,3 +23,11 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER_PREFIX
+        value: "mirx"
