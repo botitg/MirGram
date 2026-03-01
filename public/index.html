@@ -58,6 +58,25 @@
                     </div>
                 </div>
 
+                <section id="resumeSessionCard" class="resume-session hidden">
+                    <div class="resume-session-copy">
+                        <span class="resume-session-badge">Безопасный вход</span>
+                        <strong>На этом телефоне уже сохранён аккаунт</strong>
+                        <p>Подтвердите вход, чтобы не попасть в чужой аккаунт автоматически.</p>
+                    </div>
+                    <div class="resume-session-user">
+                        <img id="resumeSessionAvatar" src="/assets/icon.png" alt="Аккаунт" />
+                        <div>
+                            <strong id="resumeSessionUsername">@user</strong>
+                            <span id="resumeSessionHint">Продолжить вход в один тап или выбрать другой аккаунт.</span>
+                        </div>
+                    </div>
+                    <div class="resume-session-actions">
+                        <button id="resumeSessionContinue" type="button" class="btn primary">Продолжить</button>
+                        <button id="resumeSessionSwitch" type="button" class="btn ghost">Другой аккаунт</button>
+                    </div>
+                </section>
+
                 <div class="tabs">
                     <button class="tab active" data-tab="login">Вход</button>
                     <button class="tab" data-tab="register">Регистрация</button>
@@ -152,6 +171,10 @@
                             <label class="btn ghost file-btn" aria-label="Прикрепить фото">
                                 📷
                                 <input id="imageInput" type="file" accept="image/*" hidden />
+                            </label>
+                            <label class="btn ghost file-btn" aria-label="Создать стикер">
+                                🧩
+                                <input id="stickerInput" type="file" accept="image/*" hidden />
                             </label>
                             <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать голосовое сообщение">
                                 🎙

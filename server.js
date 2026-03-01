@@ -518,6 +518,7 @@ async function notifyChatMessage(chatId, senderUserId, message) {
 
     let body = message.text || 'Новое сообщение';
     if (message.type === 'image') body = '📷 Фото';
+    if (message.type === 'sticker') body = '🧩 Стикер';
     if (message.type === 'audio') body = '🎙 Голосовое сообщение';
     if (message.type === 'video') body = '🎬 Видеосообщение';
 
@@ -1809,6 +1810,46 @@ app.post(
             type: 'audio',
             text: caption,
             imageUrl: audioUrl,
+            replyToMessageId,
+        });
+
+        io.to(chatRoom(chatId)).emit('message:new', message);
+        await notifyChatMessage(chatId, req.user.id, message);
+        res.json({ message });
+    })
+);
+
+app.post(
+    '/api/chats/:chatId/messages/sticker',
+    authMiddleware,
+    (req, res, next) => {
+        messageUpload.single('sticker')(req, res, (error) => {
+            if (error) {
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
+                return;
+            }
+            next();
+        });
+    },
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const caption = String(req.body.caption || '').trim();
+        const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
+
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
+        assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
+        assert(req.file, 'Файл не получен.', 400);
+
+        const stickerUrl = `/uploads/images/${req.file.filename}`;
+
+        const message = await createMessage({
+            chatId,
+            userId: req.user.id,
+            type: 'sticker',
+            text: caption,
+            imageUrl: stickerUrl,
             replyToMessageId,
         });
 

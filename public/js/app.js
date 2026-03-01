@@ -46,11 +46,14 @@ function urlBase64ToUint8Array(base64String) {
     return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
-function readStoredToken() {
+function readStoredTokenInfo() {
     try {
         const sessionToken = window.sessionStorage?.getItem(TOKEN_KEY) || "";
         if (sessionToken) {
-            return sessionToken;
+            return {
+                token: sessionToken,
+                source: "session",
+            };
         }
     } catch {
         // ignore
@@ -58,18 +61,25 @@ function readStoredToken() {
 
     try {
         const persistedToken = window.localStorage?.getItem(TOKEN_KEY) || "";
-        if (persistedToken) {
-            window.sessionStorage?.setItem(TOKEN_KEY, persistedToken);
-        }
-        return persistedToken;
+        return {
+            token: persistedToken,
+            source: persistedToken ? "local" : "",
+        };
     } catch {
-        return "";
+        return {
+            token: "",
+            source: "",
+        };
     }
 }
 
+const initialTokenInfo = readStoredTokenInfo();
+
 const state = {
-    token: readStoredToken(),
+    token: initialTokenInfo.token,
+    tokenSource: initialTokenInfo.source,
     me: null,
+    resumeSession: null,
     chats: [],
     filteredChats: [],
     currentChatId: null,
@@ -83,6 +93,7 @@ const state = {
     typingMap: new Map(),
     searchQuery: "",
     selectedImage: null,
+    selectedSticker: null,
     selectedAudio: null,
     selectedVideo: null,
     selectedAttachmentMeta: null,
@@ -152,25 +163,25 @@ const EMOJI_GROUPS = [
         key: "smileys",
         icon: "😀",
         title: "Улыбки",
-        emojis: ["😀", "😃", "😄", "😁", "😅", "😂", "🤣", "😊", "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "😭", "😡", "😴", "🤯", "🥳", "😇", "🤔", "🫡", "🤝"],
+        emojis: ["😀", "😃", "😄", "😁", "😅", "😂", "🤣", "😊", "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "😭", "😡", "😴", "🤯", "🥳", "😇", "🤔", "🫡", "🤝", "😌", "😋", "😏", "🙃", "😬", "🥲", "😤", "😱", "🥶", "🥵", "🤠", "🫠"],
     },
     {
         key: "people",
         icon: "🙌",
         title: "Люди",
-        emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "🫶", "💪", "👀", "💬", "🧠", "❤️", "🔥", "✨", "💯", "✅", "❌", "⚡", "🎉", "🏆"],
+        emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "🫶", "💪", "👀", "💬", "🧠", "❤️", "🔥", "✨", "💯", "✅", "❌", "⚡", "🎉", "🏆", "🤌", "👌", "✌️", "🤞", "🤟", "👋", "🙋", "🫵", "👑", "🧑‍💻", "🕺", "💃"],
     },
     {
         key: "objects",
         icon: "📱",
         title: "Объекты",
-        emojis: ["📞", "🎤", "🎧", "📷", "🎬", "💻", "📱", "⌚", "🔔", "🔒", "🛡️", "💡", "📌", "📎", "✉️", "🗂️", "🧩", "🛰️"],
+        emojis: ["📞", "🎤", "🎧", "📷", "🎬", "💻", "📱", "⌚", "🔔", "🔒", "🛡️", "💡", "📌", "📎", "✉️", "🗂️", "🧩", "🛰️", "🖥️", "⌨️", "🕹️", "📡", "🎮", "🪄", "📍", "🔋", "💾", "📁", "🧷", "🗝️"],
     },
     {
         key: "nature",
         icon: "🌍",
         title: "Мир",
-        emojis: ["🌍", "🌎", "🌏", "🌙", "⭐", "☀️", "🌧️", "🌈", "🌊", "🌿", "🍀", "🌲", "🌺", "🍎", "☕", "🍕", "🚀", "🏙️"],
+        emojis: ["🌍", "🌎", "🌏", "🌙", "⭐", "☀️", "🌧️", "🌈", "🌊", "🌿", "🍀", "🌲", "🌺", "🍎", "☕", "🍕", "🚀", "🏙️", "🌴", "🌵", "🌸", "🌼", "🌻", "🍇", "🍓", "🍔", "🍟", "🧋", "🏝️", "🏔️"],
     },
 ];
 
@@ -179,6 +190,12 @@ const dom = {
     appScreen: document.getElementById("appScreen"),
     loginForm: document.getElementById("loginForm"),
     registerForm: document.getElementById("registerForm"),
+    resumeSessionCard: document.getElementById("resumeSessionCard"),
+    resumeSessionAvatar: document.getElementById("resumeSessionAvatar"),
+    resumeSessionUsername: document.getElementById("resumeSessionUsername"),
+    resumeSessionHint: document.getElementById("resumeSessionHint"),
+    resumeSessionContinue: document.getElementById("resumeSessionContinue"),
+    resumeSessionSwitch: document.getElementById("resumeSessionSwitch"),
     tabs: Array.from(document.querySelectorAll(".tab")),
     chatSearch: document.getElementById("chatSearch"),
     chatList: document.getElementById("chatList"),
@@ -190,6 +207,7 @@ const dom = {
     composer: document.getElementById("composer"),
     messageInput: document.getElementById("messageInput"),
     imageInput: document.getElementById("imageInput"),
+    stickerInput: document.getElementById("stickerInput"),
     recordVoiceBtn: document.getElementById("recordVoiceBtn"),
     recordVideoBtn: document.getElementById("recordVideoBtn"),
     selectedImageBar: document.getElementById("selectedImageBar"),
@@ -341,16 +359,18 @@ async function syncPushSubscription() {
     renderProfile();
 }
 
-async function enablePushNotifications() {
+async function enablePushNotifications({ quiet = false } = {}) {
     if (!("Notification" in window)) {
-        toast("Этот браузер не поддерживает уведомления.");
+        if (!quiet) toast("Этот браузер не поддерживает уведомления.");
         return;
     }
 
-    const permission = await Notification.requestPermission();
+    const permission = Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
     state.notificationPermission = permission;
     if (permission !== "granted") {
-        toast("Разрешение на уведомления не выдано.");
+        if (!quiet) toast("Разрешение на уведомления не выдано.");
         state.pushEnabled = false;
         renderProfile();
         return;
@@ -358,9 +378,9 @@ async function enablePushNotifications() {
 
     try {
         await syncPushSubscription();
-        toast("Уведомления включены.");
+        if (!quiet) toast("Уведомления включены.");
     } catch (error) {
-        toast(error.message || "Не удалось включить уведомления.");
+        if (!quiet) toast(error.message || "Не удалось включить уведомления.");
     }
 }
 
@@ -393,10 +413,39 @@ async function maybePromptNotificationPermission() {
 
     markNotificationPromptShown();
     try {
-        await enablePushNotifications();
+        await enablePushNotifications({ quiet: true });
     } catch {
         // ignore
     }
+}
+
+async function requestNotificationsFromGesture() {
+    if (!shouldPromptNotificationPermission()) return;
+    markNotificationPromptShown();
+    await enablePushNotifications({ quiet: true });
+}
+
+function armNotificationPromptOnInteraction() {
+    if (!shouldPromptNotificationPermission()) {
+        return;
+    }
+
+    const tryPrompt = async () => {
+        if (!shouldPromptNotificationPermission()) return;
+        try {
+            await requestNotificationsFromGesture();
+        } catch {
+            // ignore
+        } finally {
+            window.removeEventListener("pointerdown", tryPrompt, true);
+            window.removeEventListener("keydown", tryPrompt, true);
+            window.removeEventListener("touchstart", tryPrompt, true);
+        }
+    };
+
+    window.addEventListener("pointerdown", tryPrompt, true);
+    window.addEventListener("keydown", tryPrompt, true);
+    window.addEventListener("touchstart", tryPrompt, true);
 }
 
 function notifyBrowser(title, options = {}) {
@@ -506,6 +555,7 @@ function safePlayMediaElement(element) {
 function getMessageTypeLabel(message) {
     if (!message) return "Сообщение";
     if (message.isDeleted || message.type === "deleted") return "Сообщение удалено";
+    if (message.type === "sticker") return "🧩 Стикер";
     if (message.type === "image") return "📷 Фото";
     if (message.type === "audio") return "🎙 Голосовое сообщение";
     if (message.type === "video") return "🎬 Видеосообщение";
@@ -563,12 +613,140 @@ function updateViewportMetrics() {
     document.body.classList.toggle("keyboard-open", isMobileViewport() && keyboardOffset > 96);
 }
 
+function sanitizeFileBaseName(fileName, fallback = "upload") {
+    const clean = String(fileName || fallback)
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+    return clean || fallback;
+}
+
+function loadImageElementFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error("Не удалось обработать изображение."));
+        };
+        image.src = objectUrl;
+    });
+}
+
+function canvasToBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                reject(new Error("Не удалось подготовить изображение."));
+                return;
+            }
+            resolve(blob);
+        }, type, quality);
+    });
+}
+
+function roundedRectPath(ctx, x, y, width, height, radius) {
+    const safeRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + safeRadius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, safeRadius);
+    ctx.arcTo(x + width, y + height, x, y + height, safeRadius);
+    ctx.arcTo(x, y + height, x, y, safeRadius);
+    ctx.arcTo(x, y, x + width, y, safeRadius);
+    ctx.closePath();
+}
+
+async function createOptimizedImage(file, {
+    maxWidth = 1600,
+    maxHeight = 1600,
+    format = "image/webp",
+    quality = 0.82,
+    filePrefix = "photo",
+    squareSize = 0,
+    rounded = false,
+    roundedRadius = 32,
+} = {}) {
+    if (!file?.type?.startsWith("image/")) {
+        return file;
+    }
+
+    const image = await loadImageElementFromFile(file);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) {
+        return file;
+    }
+
+    let targetWidth;
+    let targetHeight;
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceWidth = image.naturalWidth;
+    let sourceHeight = image.naturalHeight;
+
+    if (squareSize > 0) {
+        targetWidth = squareSize;
+        targetHeight = squareSize;
+        const sourceSquare = Math.min(image.naturalWidth, image.naturalHeight);
+        sourceX = (image.naturalWidth - sourceSquare) / 2;
+        sourceY = (image.naturalHeight - sourceSquare) / 2;
+        sourceWidth = sourceSquare;
+        sourceHeight = sourceSquare;
+    } else {
+        const ratio = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+        targetWidth = Math.max(1, Math.round(image.naturalWidth * ratio));
+        targetHeight = Math.max(1, Math.round(image.naturalHeight * ratio));
+    }
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    if (rounded) {
+        roundedRectPath(ctx, 0, 0, targetWidth, targetHeight, roundedRadius);
+        ctx.clip();
+    }
+
+    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+
+    let nextFormat = format;
+    let blob;
+    try {
+        blob = await canvasToBlob(canvas, nextFormat, quality);
+    } catch {
+        nextFormat = "image/jpeg";
+        blob = await canvasToBlob(canvas, nextFormat, quality);
+    }
+
+    const extension = nextFormat.includes("png")
+        ? "png"
+        : nextFormat.includes("webp")
+            ? "webp"
+            : "jpg";
+    const baseName = sanitizeFileBaseName(file.name, filePrefix);
+    const optimized = new File([blob], `${baseName}.${extension}`, {
+        type: nextFormat,
+        lastModified: Date.now(),
+    });
+
+    if (squareSize > 0 || rounded) {
+        return optimized;
+    }
+
+    return optimized.size < file.size ? optimized : file;
+}
+
 function getToken() {
     return state.token;
 }
 
 function setToken(token) {
     state.token = token || "";
+    state.tokenSource = state.token ? "session" : "";
     try {
         if (state.token) {
             window.sessionStorage?.setItem(TOKEN_KEY, state.token);
@@ -645,6 +823,26 @@ function setAuthMode(isAuth) {
         setChatsDrawer(false);
         closeProfileSheet();
     }
+}
+
+function clearResumeSession() {
+    state.resumeSession = null;
+    renderResumeSessionCard();
+}
+
+function renderResumeSessionCard() {
+    if (!dom.resumeSessionCard) return;
+
+    if (!state.resumeSession) {
+        dom.resumeSessionCard.classList.add("hidden");
+        return;
+    }
+
+    const user = state.resumeSession.user || {};
+    dom.resumeSessionCard.classList.remove("hidden");
+    dom.resumeSessionAvatar.src = assetUrl(user.avatarUrl || defaultAvatar(user.username || "MIRX"));
+    dom.resumeSessionUsername.textContent = `@${user.username || "user"}`;
+    dom.resumeSessionHint.textContent = "Нажмите «Продолжить», если это ваш аккаунт, или выберите другой.";
 }
 
 function switchTab(tab) {
@@ -1101,6 +1299,13 @@ function renderMessages() {
                 </div>
             `
             : "";
+        const sticker = !isDeleted && message.type === "sticker" && mediaUrl
+            ? `
+                <div class="msg-sticker-shell">
+                    <img class="msg-sticker" src="${escapeHtml(mediaUrl)}" alt="sticker" />
+                </div>
+            `
+            : "";
         const audio = !isDeleted && message.type === "audio"
             ? renderVoiceMessagePlayer(message)
             : "";
@@ -1126,7 +1331,7 @@ function renderMessages() {
             `
             : "";
 
-        return `<article class="${cls}" data-message-id="${message.id}">${header}${reply}${image}${audio}${video}${text}${actions}</article>`;
+        return `<article class="${cls}" data-message-id="${message.id}">${header}${reply}${image}${sticker}${audio}${video}${text}${actions}</article>`;
     }).join("");
 
     for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
@@ -1205,20 +1410,65 @@ function renderCurrentChat() {
 async function loadSession() {
     if (!getToken()) {
         state.me = null;
+        clearResumeSession();
         setAuthMode(false);
-        return;
+        return false;
     }
 
     try {
         const data = await api("/api/auth/me");
+        if (isMobileViewport() && state.tokenSource === "local") {
+            state.resumeSession = {
+                token: getToken(),
+                user: data.user,
+            };
+            state.me = null;
+            renderResumeSessionCard();
+            setAuthMode(false);
+            return false;
+        }
+
         state.me = data.user;
+        clearResumeSession();
         setAuthMode(true);
         renderProfile();
+        return true;
     } catch {
+        clearResumeSession();
         setToken("");
         state.me = null;
         setAuthMode(false);
+        return false;
     }
+}
+
+async function continueStoredMobileSession() {
+    if (!state.resumeSession?.token || !state.resumeSession?.user) {
+        return;
+    }
+
+    setToken(state.resumeSession.token);
+    state.me = state.resumeSession.user;
+    clearResumeSession();
+    setAuthMode(true);
+    renderProfile();
+    connectSocket();
+    await loadChats();
+    await syncPushSubscription().catch(() => {
+        // ignore
+    });
+    await requestNotificationsFromGesture().catch(() => {
+        // ignore
+    });
+}
+
+function switchStoredMobileSession() {
+    clearResumeSession();
+    setToken("");
+    state.me = null;
+    renderProfile();
+    switchTab("login");
+    setAuthMode(false);
 }
 
 async function loadChats() {
@@ -1301,6 +1551,7 @@ async function login(event) {
 
         setToken(data.token);
         state.me = data.user;
+        clearResumeSession();
         setAuthMode(true);
         renderProfile();
         connectSocket();
@@ -1308,11 +1559,10 @@ async function login(event) {
         await syncPushSubscription().catch(() => {
             // ignore
         });
-        setTimeout(() => {
-            maybePromptNotificationPermission().catch(() => {
-                // ignore
-            });
-        }, 700);
+        await requestNotificationsFromGesture().catch(() => {
+            // ignore
+        });
+        armNotificationPromptOnInteraction();
         toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
@@ -1339,6 +1589,7 @@ async function register(event) {
 
         setToken(data.token);
         state.me = data.user;
+        clearResumeSession();
         setAuthMode(true);
         renderProfile();
         connectSocket();
@@ -1346,11 +1597,10 @@ async function register(event) {
         await syncPushSubscription().catch(() => {
             // ignore
         });
-        setTimeout(() => {
-            maybePromptNotificationPermission().catch(() => {
-                // ignore
-            });
-        }, 700);
+        await requestNotificationsFromGesture().catch(() => {
+            // ignore
+        });
+        armNotificationPromptOnInteraction();
         toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
     } catch (error) {
@@ -1373,6 +1623,7 @@ async function logout() {
     }
 
     setToken("");
+    clearResumeSession();
     state.me = null;
     state.chats = [];
     state.currentChatId = null;
@@ -1727,10 +1978,14 @@ async function openManageMemberModal() {
 function clearSelectedAttachments() {
     clearSelectedAttachmentPreviewUrl();
     state.selectedImage = null;
+    state.selectedSticker = null;
     state.selectedAudio = null;
     state.selectedVideo = null;
     state.selectedAttachmentMeta = null;
     dom.imageInput.value = "";
+    if (dom.stickerInput) {
+        dom.stickerInput.value = "";
+    }
 }
 
 function setSelectedAttachment(kind, file, meta = {}) {
@@ -1741,6 +1996,7 @@ function setSelectedAttachment(kind, file, meta = {}) {
     }
 
     if (kind === "image") state.selectedImage = file;
+    if (kind === "sticker") state.selectedSticker = file;
     if (kind === "audio") state.selectedAudio = file;
     if (kind === "video") state.selectedVideo = file;
     state.selectedAttachmentMeta = meta;
@@ -1767,6 +2023,17 @@ function getSelectedAttachment() {
             field: "audio",
             endpoint: "audio",
             label: "🎙 Голосовое сообщение",
+            meta: state.selectedAttachmentMeta || {},
+            previewUrl: state.selectedAttachmentPreviewUrl,
+        };
+    }
+    if (state.selectedSticker) {
+        return {
+            kind: "sticker",
+            file: state.selectedSticker,
+            field: "sticker",
+            endpoint: "sticker",
+            label: "🧩 Стикер",
             meta: state.selectedAttachmentMeta || {},
             previewUrl: state.selectedAttachmentPreviewUrl,
         };
@@ -2166,6 +2433,9 @@ function renderSelectedImage() {
     if (attachment?.kind === "image" && attachment.previewUrl) {
         preview = `<img class="composer-preview-image" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр фото" />`;
     }
+    if (attachment?.kind === "sticker" && attachment.previewUrl) {
+        preview = `<img class="composer-preview-sticker" src="${escapeHtml(attachment.previewUrl)}" alt="Предпросмотр стикера" />`;
+    }
     if (attachment?.kind === "audio" && attachment.previewUrl) {
         preview = `<audio class="composer-preview-audio" controls preload="metadata" src="${escapeHtml(attachment.previewUrl)}"></audio>`;
     }
@@ -2395,12 +2665,15 @@ function applyComposerPermissions() {
 
     const submitBtn = dom.composer.querySelector('button[type="submit"]');
     const imageButton = dom.imageInput.closest(".file-btn");
+    const stickerButton = dom.stickerInput?.closest(".file-btn");
 
     dom.messageInput.disabled = !canSend || isRecording;
     dom.emojiBtn.disabled = !canSend;
     dom.imageInput.disabled = !canMedia || isRecording;
+    if (dom.stickerInput) dom.stickerInput.disabled = !canMedia || isRecording;
     if (submitBtn) submitBtn.disabled = !canSend || isRecording;
     imageButton?.classList.toggle("disabled", !canMedia || isRecording);
+    stickerButton?.classList.toggle("disabled", !canMedia || isRecording);
     dom.recordVoiceBtn?.classList.toggle("disabled", recordLocked && !isRecording);
     dom.recordVideoBtn?.classList.toggle("disabled", recordLocked && !isRecording);
     if (dom.recordVoiceBtn) dom.recordVoiceBtn.disabled = recordLocked && !isRecording;
@@ -3582,6 +3855,12 @@ function bindUi() {
 
     dom.loginForm.addEventListener("submit", login);
     dom.registerForm.addEventListener("submit", register);
+    dom.resumeSessionContinue?.addEventListener("click", () => {
+        continueStoredMobileSession().catch((error) => {
+            toast(error.message || "Не удалось продолжить сессию.");
+        });
+    });
+    dom.resumeSessionSwitch?.addEventListener("click", switchStoredMobileSession);
     dom.logoutBtn.addEventListener("click", logout);
 
     dom.chatSearch.addEventListener("input", () => {
@@ -3633,7 +3912,7 @@ function bindUi() {
         dom.messages.addEventListener(eventName, handleVoiceNoteMediaEvent, true);
     }
 
-    dom.imageInput.addEventListener("change", () => {
+    dom.imageInput.addEventListener("change", async () => {
         const file = dom.imageInput.files?.[0];
         if (!file) return;
 
@@ -3643,7 +3922,52 @@ function bindUi() {
             return;
         }
 
-        setSelectedAttachment("image", file);
+        try {
+            const optimized = await createOptimizedImage(file, {
+                maxWidth: 1400,
+                maxHeight: 1400,
+                quality: 0.8,
+                format: "image/webp",
+                filePrefix: "photo",
+            });
+            setSelectedAttachment("image", optimized, {
+                originalSize: file.size,
+                optimizedSize: optimized.size,
+            });
+        } catch (error) {
+            toast(error.message || "Не удалось подготовить фото.");
+            dom.imageInput.value = "";
+        }
+    });
+
+    dom.stickerInput?.addEventListener("change", async () => {
+        const file = dom.stickerInput.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            toast("Для стикера нужно изображение.");
+            dom.stickerInput.value = "";
+            return;
+        }
+
+        try {
+            const sticker = await createOptimizedImage(file, {
+                squareSize: 512,
+                rounded: true,
+                roundedRadius: 96,
+                format: "image/webp",
+                quality: 0.88,
+                filePrefix: "sticker",
+            });
+            setSelectedAttachment("sticker", sticker, {
+                originalSize: file.size,
+                optimizedSize: sticker.size,
+                sticker: true,
+            });
+        } catch (error) {
+            toast(error.message || "Не удалось создать стикер.");
+            dom.stickerInput.value = "";
+        }
     });
 
     dom.recordVoiceBtn?.addEventListener("click", () => {
@@ -3757,6 +4081,9 @@ function bindUi() {
         setChatsDrawer(false);
         closeProfileSheet();
         closeCallOverlay();
+        requestNotificationsFromGesture().catch(() => {
+            // ignore
+        });
         setTimeout(updateViewportMetrics, 40);
     };
     dom.messageInput.addEventListener("focus", onMobileComposerFocus);
@@ -3835,6 +4162,7 @@ async function init() {
 
     await loadSession();
     if (!state.me) {
+        renderResumeSessionCard();
         setAuthMode(false);
         return;
     }
@@ -3845,11 +4173,7 @@ async function init() {
         await syncPushSubscription().catch(() => {
             // ignore
         });
-        setTimeout(() => {
-            maybePromptNotificationPermission().catch(() => {
-                // ignore
-            });
-        }, 700);
+        armNotificationPromptOnInteraction();
 
         const params = new URLSearchParams(window.location.search);
         const chatIdFromUrl = Number(params.get("chat") || 0);
