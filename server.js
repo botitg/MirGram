@@ -120,6 +120,7 @@ const videoUpload = createMediaUpload(VIDEO_UPLOAD_DIR, {
 let db;
 
 const onlineCounters = new Map();
+const visibleCounters = new Map();
 const activeCalls = new Map();
 const pushEnabled = Boolean(webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 
@@ -310,7 +311,20 @@ async function onlineUserIdsForUser(userId) {
 }
 
 function isUserOnline(userId) {
-    return (onlineCounters.get(Number(userId)) || 0) > 0;
+    return (visibleCounters.get(Number(userId)) || 0) > 0;
+}
+
+async function setVisibleState(userId, diff) {
+    const prev = visibleCounters.get(userId) || 0;
+    const next = Math.max(prev + diff, 0);
+    visibleCounters.set(userId, next);
+
+    if (prev === 0 && next > 0) {
+        await notifyUserPresence(userId, true);
+    }
+    if (prev > 0 && next === 0) {
+        await notifyUserPresence(userId, false);
+    }
 }
 
 async function removePushSubscriptionByEndpoint(endpoint) {
@@ -368,6 +382,73 @@ async function userIdentityInChat(chatId, userId) {
     );
 }
 
+async function listChatStickers(chatId) {
+    const rows = await db.all(
+        `SELECT cs.id,
+                cs.chat_id AS chatId,
+                cs.name,
+                cs.image_url AS imageUrl,
+                cs.created_by AS createdBy,
+                cs.created_at AS createdAt,
+                u.username AS createdByUsername
+         FROM chat_stickers cs
+         LEFT JOIN users u ON u.id = cs.created_by
+         WHERE cs.chat_id = ?
+         ORDER BY cs.id DESC`,
+        [chatId]
+    );
+
+    return rows.map((row) => ({
+        id: row.id,
+        chatId: row.chatId,
+        name: row.name,
+        imageUrl: toPublicUrl(row.imageUrl),
+        createdBy: row.createdBy,
+        createdByUsername: row.createdByUsername,
+        createdAt: row.createdAt,
+    }));
+}
+
+async function readStickerById(stickerId) {
+    return db.get(
+        `SELECT id,
+                chat_id AS chatId,
+                name,
+                image_url AS imageUrl,
+                created_by AS createdBy,
+                created_at AS createdAt
+         FROM chat_stickers
+         WHERE id = ?`,
+        [stickerId]
+    );
+}
+
+async function readMessageViews(chatId, messageId) {
+    const rows = await db.all(
+        `SELECT mv.message_id AS messageId,
+                mv.user_id AS userId,
+                mv.viewed_at AS viewedAt,
+                u.username,
+                u.avatar_url AS avatarUrl,
+                cm.group_nick AS groupNick,
+                cm.group_avatar_url AS groupAvatarUrl
+         FROM message_views mv
+         JOIN users u ON u.id = mv.user_id
+         LEFT JOIN chat_members cm ON cm.chat_id = ? AND cm.user_id = mv.user_id
+         WHERE mv.message_id = ?
+         ORDER BY mv.viewed_at ASC`,
+        [chatId, messageId]
+    );
+
+    return rows.map((row) => ({
+        userId: row.userId,
+        username: row.username,
+        displayName: row.groupNick || row.username,
+        avatarUrl: row.groupAvatarUrl || row.avatarUrl,
+        viewedAt: row.viewedAt,
+    }));
+}
+
 const MESSAGE_SELECT_SQL = `
     SELECT m.id,
             m.chat_id AS chatId,
@@ -401,6 +482,7 @@ async function serializeMessage(row) {
     const isDeleted = Boolean(row.deletedAt);
     const mediaUrl = !isDeleted ? toPublicUrl(row.imageUrl) : null;
     const replyMediaUrl = row.replyDeletedAt ? null : toPublicUrl(row.replyImageUrl);
+    const views = row.id ? await readMessageViews(row.chatId, row.id) : [];
     return {
         id: row.id,
         chatId: row.chatId,
@@ -412,6 +494,7 @@ async function serializeMessage(row) {
         createdAt: row.createdAt,
         deletedAt: row.deletedAt || null,
         isDeleted,
+        views,
         replyToMessageId: row.replyToMessageId || null,
         replyTo: row.replyId
             ? {
@@ -501,6 +584,60 @@ async function createMessage({ chatId, userId, type, text = '', imageUrl = null,
     return serializeMessage(row);
 }
 
+async function markChatRead(chatId, userId, uptoMessageId = 0) {
+    const normalizedChatId = Number(chatId);
+    const normalizedUserId = Number(userId);
+    const uptoId = Number(uptoMessageId || 0);
+    if (!normalizedChatId || !normalizedUserId || !uptoId) {
+        return [];
+    }
+
+    const rows = await db.all(
+        `SELECT m.id
+         FROM messages m
+         WHERE m.chat_id = ?
+           AND m.id <= ?
+           AND m.user_id IS NOT NULL
+           AND m.user_id <> ?
+           AND NOT EXISTS (
+               SELECT 1
+               FROM message_views mv
+               WHERE mv.message_id = m.id AND mv.user_id = ?
+           )
+         ORDER BY m.id ASC`,
+        [normalizedChatId, uptoId, normalizedUserId, normalizedUserId]
+    );
+
+    if (!rows.length) {
+        return [];
+    }
+
+    const identity = await userIdentityInChat(normalizedChatId, normalizedUserId);
+    const viewer = {
+        userId: normalizedUserId,
+        username: identity?.username || `user_${normalizedUserId}`,
+        displayName: identity?.groupNick || identity?.username || `user_${normalizedUserId}`,
+        avatarUrl: identity?.groupAvatarUrl || identity?.baseAvatar || '',
+    };
+
+    const updates = [];
+    for (const row of rows) {
+        const viewedAt = nowIso();
+        await db.run(
+            `INSERT OR IGNORE INTO message_views (message_id, user_id, viewed_at)
+             VALUES (?, ?, ?)`,
+            [row.id, normalizedUserId, viewedAt]
+        );
+        updates.push({
+            messageId: Number(row.id),
+            viewedAt,
+            viewer,
+        });
+    }
+
+    return updates;
+}
+
 async function notifyChatMessage(chatId, senderUserId, message) {
     const recipients = await chatParticipantIds(chatId, { excludeUserId: senderUserId });
     if (!recipients.length) return;
@@ -580,13 +717,6 @@ async function setOnlineState(userId, diff) {
     const prev = onlineCounters.get(userId) || 0;
     const next = Math.max(prev + diff, 0);
     onlineCounters.set(userId, next);
-
-    if (prev === 0 && next > 0) {
-        await notifyUserPresence(userId, true);
-    }
-    if (prev > 0 && next === 0) {
-        await notifyUserPresence(userId, false);
-    }
 }
 
 function canManageMembers(role) {
@@ -784,6 +914,26 @@ async function initializeDatabase() {
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS message_views (
+                message_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                viewed_at TEXT NOT NULL,
+                PRIMARY KEY (message_id, user_id),
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_stickers (
+                id SERIAL PRIMARY KEY,
+                chat_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                image_url TEXT NOT NULL,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_endpoint ON notification_subscriptions(endpoint);
         `
         : `
@@ -848,6 +998,26 @@ async function initializeDatabase() {
                 subscription_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS message_views (
+                message_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                viewed_at TEXT NOT NULL,
+                PRIMARY KEY (message_id, user_id),
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_stickers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                image_url TEXT NOT NULL,
+                created_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
             );
         `;
 
@@ -1394,6 +1564,10 @@ app.get(
             [chatId]
         );
 
+        const stickers = chat.type === 'group'
+            ? await listChatStickers(chatId)
+            : [];
+
         res.json({
             chat,
             myRole: membership.role,
@@ -1418,7 +1592,101 @@ app.get(
                 },
                 joinedAt: member.joinedAt,
             })),
+            stickers,
         });
+    })
+);
+
+app.post(
+    '/api/chats/:chatId/read',
+    authMiddleware,
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+
+        const latest = await db.get(
+            `SELECT id
+             FROM messages
+             WHERE chat_id = ?
+             ORDER BY id DESC
+             LIMIT 1`,
+            [chatId]
+        );
+        const uptoMessageId = Number(req.body.uptoMessageId || latest?.id || 0);
+        const updates = await markChatRead(chatId, req.user.id, uptoMessageId);
+
+        for (const update of updates) {
+            io.to(chatRoom(chatId)).emit('message:viewed', {
+                chatId,
+                messageId: update.messageId,
+                viewer: update.viewer,
+                viewedAt: update.viewedAt,
+            });
+        }
+
+        res.json({ ok: true, updates });
+    })
+);
+
+app.get(
+    '/api/chats/:chatId/stickers',
+    authMiddleware,
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+
+        const stickers = await listChatStickers(chatId);
+        res.json({ stickers });
+    })
+);
+
+app.post(
+    '/api/chats/:chatId/stickers',
+    authMiddleware,
+    (req, res, next) => {
+        messageUpload.single('sticker')(req, res, (error) => {
+            if (error) {
+                res.status(400).json({ error: error.message || 'Ошибка загрузки файла.' });
+                return;
+            }
+            next();
+        });
+    },
+    withApi(async (req, res) => {
+        const chatId = Number(req.params.chatId);
+        const membership = await readMembership(chatId, req.user.id);
+        assert(membership, 'Доступ запрещён.', 403);
+        assert(membership.chatType === 'group', 'Стикерпак доступен только в группах.', 400);
+        assert(membership.role === 'owner', 'Добавлять стикеры может только создатель группы.', 403);
+        assert(req.file, 'Файл не получен.', 400);
+
+        const name = String(req.body.name || req.file.originalname || 'Стикер').trim().slice(0, 64) || 'Стикер';
+        const imageUrl = `/uploads/images/${req.file.filename}`;
+
+        const result = await db.run(
+            `INSERT INTO chat_stickers (chat_id, name, image_url, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [chatId, name, imageUrl, req.user.id, nowIso()]
+        );
+        const sticker = await readStickerById(result.lastID);
+        const payload = {
+            id: sticker.id,
+            chatId: sticker.chatId,
+            name: sticker.name,
+            imageUrl: toPublicUrl(sticker.imageUrl),
+            createdBy: sticker.createdBy,
+            createdByUsername: req.user.username,
+            createdAt: sticker.createdAt,
+        };
+
+        io.to(chatRoom(chatId)).emit('sticker:added', {
+            chatId,
+            sticker: payload,
+        });
+
+        res.json({ sticker: payload });
     })
 );
 
@@ -1835,14 +2103,26 @@ app.post(
         const chatId = Number(req.params.chatId);
         const caption = String(req.body.caption || '').trim();
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
+        const stickerId = Number(req.body.stickerId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Доступ запрещён.', 403);
         assert(Boolean(membership.canSend), 'Вам запрещено отправлять сообщения в этом чате.', 403);
         assert(Boolean(membership.canSendMedia), 'Вам запрещено отправлять медиа в этом чате.', 403);
-        assert(req.file, 'Файл не получен.', 400);
+        assert(req.file || stickerId, 'Файл или стикер не получен.', 400);
 
-        const stickerUrl = `/uploads/images/${req.file.filename}`;
+        let stickerUrl = '';
+        if (stickerId) {
+            const sticker = await readStickerById(stickerId);
+            assert(sticker, 'Стикер не найден.', 404);
+            assert(Number(sticker.chatId) === chatId, 'Стикер не принадлежит этому чату.', 400);
+            stickerUrl = sticker.imageUrl;
+        } else {
+            if (membership.chatType === 'group') {
+                assert(membership.role === 'owner', 'Добавлять новые стикеры может только создатель группы.', 403);
+            }
+            stickerUrl = `/uploads/images/${req.file.filename}`;
+        }
 
         const message = await createMessage({
             chatId,
@@ -2027,6 +2307,7 @@ io.use(async (socket, next) => {
 
 io.on('connection', async (socket) => {
     const userId = socket.user.id;
+    socket.isVisible = socket.handshake.auth?.visible !== false;
 
     socket.join(userRoom(userId));
 
@@ -2036,6 +2317,9 @@ io.on('connection', async (socket) => {
     }
 
     await setOnlineState(userId, 1);
+    if (socket.isVisible) {
+        await setVisibleState(userId, 1);
+    }
 
     socket.emit('ready', {
         userId,
@@ -2066,6 +2350,19 @@ io.on('connection', async (socket) => {
         } catch {
             // ignore
         }
+    });
+
+    socket.on('presence:visible', async ({ visible }) => {
+        const nextVisible = Boolean(visible);
+        if (socket.isVisible === nextVisible) {
+            return;
+        }
+        socket.isVisible = nextVisible;
+        await setVisibleState(userId, nextVisible ? 1 : -1);
+        socket.emit('ready', {
+            userId,
+            onlineUserIds: await onlineUserIdsForUser(userId),
+        });
     });
 
     socket.on('call:start', async ({ chatId, mode }) => {
@@ -2249,6 +2546,9 @@ io.on('connection', async (socket) => {
             }
         }
 
+        if (socket.isVisible) {
+            await setVisibleState(userId, -1);
+        }
         await setOnlineState(userId, -1);
     });
 });

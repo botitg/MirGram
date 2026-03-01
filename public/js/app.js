@@ -86,6 +86,7 @@ const state = {
     currentChat: null,
     messages: [],
     members: [],
+    chatStickers: [],
     myRole: null,
     myPermissions: null,
     socket: null,
@@ -536,6 +537,16 @@ function formatTime(value) {
     });
 }
 
+function formatDateTime(value) {
+    if (!value) return "";
+    return new Date(value).toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
 function formatMediaTime(totalSeconds) {
     const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
     const minutes = Math.floor(safeSeconds / 60);
@@ -859,6 +870,8 @@ function switchTab(tab) {
 
 function closeModal(cancelled = true) {
     dom.modal.classList.add("hidden");
+    dom.modal.classList.remove("info-mode");
+    dom.modalSubmit.classList.remove("hidden");
     if (cancelled && modalState.rejecter) {
         modalState.rejecter(new Error("cancelled"));
     }
@@ -919,6 +932,14 @@ function openModal({ title, submitLabel, fields }) {
     });
 }
 
+function openInfoModal({ title, html }) {
+    dom.modalTitle.textContent = title || "Информация";
+    dom.modalFields.innerHTML = html || "";
+    dom.modal.classList.add("info-mode");
+    dom.modalSubmit.classList.add("hidden");
+    dom.modal.classList.remove("hidden");
+}
+
 function handleModalSubmit(event) {
     event.preventDefault();
     if (!modalState.resolver) return;
@@ -945,6 +966,36 @@ function getCurrentChat() {
 
 function getChatDisplayName(chat) {
     return chat?.name || "Чат";
+}
+
+function getChatAvatarUrl(chat, peer = null) {
+    return assetUrl(
+        peer?.displayAvatar
+        || peer?.avatarUrl
+        || chat?.avatarUrl
+        || defaultAvatar(getChatDisplayName(chat))
+    );
+}
+
+function getChatPreviewText(chat) {
+    const lastMessage = chat?.lastMessage;
+    if (!lastMessage) return "Нет сообщений";
+
+    const label = getMessageTypeLabel(lastMessage);
+    if (!lastMessage.sender) {
+        return label;
+    }
+
+    if (Number(lastMessage.sender.id) === Number(state.me?.id)) {
+        return `Вы: ${label}`;
+    }
+
+    if (chat?.type === "group") {
+        const author = lastMessage.sender.displayName || lastMessage.sender.username || "Участник";
+        return `${author}: ${label}`;
+    }
+
+    return label;
 }
 
 function isOnline(userId) {
@@ -1069,40 +1120,17 @@ function renderChats() {
 
     state.filteredChats = chats;
 
-    const groupCount = chats.filter((chat) => chat.type === "group").length;
-    const privateCount = chats.filter((chat) => chat.type === "private").length;
-    const liveCount = chats.filter((chat) => state.callStatusByChat.has(chat.id)).length;
-
     const actionItems = `
-        <section class="chat-stack-head">
-            <div class="chat-stack-copy">
-                <span class="chat-stack-badge">MIRX space</span>
-                <h3>Ваши диалоги</h3>
-                <p>Личные чаты, группы и активные звонки в одной ленте.</p>
+        <section class="chat-history-head">
+            <div>
+                <span class="chat-stack-badge">История</span>
+                <h3>Чаты</h3>
             </div>
-            <div class="chat-stack-stats">
-                <div><span>${chats.length}</span><small>всего</small></div>
-                <div><span>${privateCount}</span><small>личных</small></div>
-                <div><span>${groupCount}</span><small>групп</small></div>
-                <div><span>${liveCount}</span><small>звонков</small></div>
+            <div class="chat-history-actions">
+                <button type="button" class="history-pill-btn" data-create="private">+ ЛС</button>
+                <button type="button" class="history-pill-btn" data-create="group">+ Группа</button>
             </div>
         </section>
-        <div class="chat-action-grid">
-            <article class="chat-item chat-item-action" data-create="private">
-                <div class="chat-avatar chat-avatar-action"><span>+</span></div>
-                <div>
-                    <h4>Новый личный чат</h4>
-                    <p>Выбрать пользователя и открыть ЛС</p>
-                </div>
-            </article>
-            <article class="chat-item chat-item-action" data-create="group">
-                <div class="chat-avatar chat-avatar-action"><span>◎</span></div>
-                <div>
-                    <h4>Новая группа</h4>
-                    <p>Создать общий чат и пригласить участников</p>
-                </div>
-            </article>
-        </div>
     `;
 
     if (!chats.length) {
@@ -1117,13 +1145,10 @@ function renderChats() {
 
     const chatItems = chats.map((chat) => {
         const active = chat.id === state.currentChatId ? "active" : "";
-        const lastText = chat.lastMessage ? getMessageTypeLabel(chat.lastMessage) : "Нет сообщений";
+        const lastText = getChatPreviewText(chat);
         const peerOnline = chat.type === "private" && chat.peerId ? isOnline(chat.peerId) : false;
-        const avatarBody = chat.avatarUrl
-            ? `<img src="${escapeHtml(assetUrl(chat.avatarUrl))}" alt="avatar" />`
-            : `<span>${chat.type === "group" ? "👥" : "💬"}</span>`;
         const avatar = `
-            ${avatarBody}
+            <img src="${escapeHtml(getChatAvatarUrl(chat))}" alt="avatar" />
             ${chat.type === "private" ? `<span class="chat-avatar-status ${peerOnline ? "online" : "offline"}"></span>` : ""}
         `;
         const time = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "";
@@ -1133,8 +1158,9 @@ function renderChats() {
             ? `<span class="chat-chip live">${callStatus.mode === "video" ? "Видеозвонок" : "Аудиозвонок"}</span>`
             : "";
         const membersBadge = chat.type === "group"
-            ? `<span class="chat-chip">${chat.membersCount || 0} участников</span>`
-            : `<span class="chat-chip">1 на 1</span>`;
+            ? `<span class="chat-chip subtle">${chat.membersCount || 0} участников</span>`
+            : "";
+        const mutedHint = chat.type === "group" ? "" : peerOnline ? "онлайн" : "оффлайн";
 
         return `
             <article class="chat-item ${active}" data-chat-id="${chat.id}">
@@ -1146,7 +1172,7 @@ function renderChats() {
                     </div>
                     <p class="chat-preview">${escapeHtml(lastText)}</p>
                     <div class="chat-meta">
-                        <span class="chat-chip">${typeLabel}</span>
+                        <span class="chat-chip">${typeLabel}${mutedHint ? ` · ${mutedHint}` : ""}</span>
                         ${membersBadge}
                         ${callBadge}
                     </div>
@@ -1157,7 +1183,7 @@ function renderChats() {
 
     dom.chatList.innerHTML = `
         ${actionItems}
-        <div class="chat-list-divider">Ваши чаты</div>
+        <div class="chat-list-divider">Последние сообщения</div>
         ${chatItems}
     `;
 }
@@ -1183,13 +1209,14 @@ function renderChatHeader() {
         ? `Идёт ${chatModeLabel}`
         : isPrivateChat && privatePeer
             ? (isOnline(privatePeer.id) ? "пользователь онлайн" : "пользователь оффлайн")
-            : "";
+            : `${state.members.length} участников`;
     const actionLabel = inCurrentCall
         ? "Открыть звонок"
         : callStatus?.active
             ? (isPrivateChat ? "Ответить" : "Войти в эфир")
             : (isPrivateChat ? "Позвонить" : "Начать эфир");
     const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : (isPrivateChat ? "📞" : "🎥");
+    const avatarUrl = getChatAvatarUrl(chat, privatePeer);
     const statusMarkup = isPrivateChat && privatePeer
         ? `<span class="header-status-pill ${isOnline(privatePeer.id) ? "online" : "offline"}">
                 <span class="status-dot ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>
@@ -1198,9 +1225,15 @@ function renderChatHeader() {
         : "";
 
     dom.chatHeader.innerHTML = `
-        <div class="chat-title">
-            <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
-            <small>${chat.type === "group" ? "Группа" : "Личный чат"} · ${state.members.length} участников ${callHint ? `· ${escapeHtml(callHint)}` : ""}</small>
+        <div class="chat-header-main">
+            <div class="chat-header-avatar">
+                <img src="${escapeHtml(avatarUrl)}" alt="avatar" />
+                ${isPrivateChat && privatePeer ? `<span class="chat-avatar-status ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>` : ""}
+            </div>
+            <div class="chat-title">
+                <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
+                <small>${chat.type === "group" ? "Группа" : "Личный чат"}${callHint ? ` · ${escapeHtml(callHint)}` : ""}</small>
+            </div>
         </div>
         <div class="header-actions">
             ${statusMarkup}
@@ -1282,6 +1315,138 @@ function renderReplyCard(replyTo) {
     `;
 }
 
+function renderMessageViewsMeta(message) {
+    if (!message?.sender || Number(message.sender.id) !== Number(state.me?.id)) {
+        return "";
+    }
+
+    const views = Array.isArray(message.views) ? message.views : [];
+    if (!views.length) {
+        return `<button type="button" class="msg-view-pill" disabled>Не просмотрено</button>`;
+    }
+
+    const lastView = views[views.length - 1];
+    return `
+        <button type="button" class="msg-view-pill" data-open-views="${message.id}">
+            ${views.length} просмотр${views.length > 1 ? "а" : ""} · ${formatTime(lastView.viewedAt)}
+        </button>
+    `;
+}
+
+function buildHistoryEntries() {
+    const entries = [];
+
+    for (const message of state.messages) {
+        if (message.type === "system") {
+            entries.push({
+                id: `system-${message.id}`,
+                kind: "system",
+                createdAt: message.createdAt,
+                text: message.text || "Системное событие",
+            });
+        }
+        if (Array.isArray(message.views) && message.views.length) {
+            for (const view of message.views) {
+                entries.push({
+                    id: `view-${message.id}-${view.userId}-${view.viewedAt}`,
+                    kind: "view",
+                    createdAt: view.viewedAt,
+                    text: `${view.displayName} просмотрел(а) ${getMessageTypeLabel(message).toLowerCase()}`,
+                    avatarUrl: view.avatarUrl,
+                });
+            }
+        }
+    }
+
+    for (const sticker of state.chatStickers) {
+        entries.push({
+            id: `sticker-${sticker.id}`,
+            kind: "sticker",
+            createdAt: sticker.createdAt,
+            text: `${sticker.createdByUsername || "Создатель"} добавил(а) стикер: ${sticker.name || "Стикер"}`,
+            avatarUrl: sticker.imageUrl,
+        });
+    }
+
+    return entries
+        .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))
+        .slice(0, 24);
+}
+
+async function markCurrentChatViewed(force = false) {
+    if (!state.currentChatId || !state.me || !document.visibilityState || document.visibilityState === "hidden") {
+        return;
+    }
+
+    const latestVisibleMessage = [...state.messages]
+        .reverse()
+        .find((message) => message.sender && Number(message.sender.id) !== Number(state.me.id));
+
+    const latestId = Number(latestVisibleMessage?.id || 0);
+    if (!latestId) return;
+    if (!force && state.currentChat?.lastViewedMessageId && Number(state.currentChat.lastViewedMessageId) >= latestId) {
+        return;
+    }
+
+    try {
+        const response = await api(`/api/chats/${state.currentChatId}/read`, {
+            method: "POST",
+            body: { uptoMessageId: latestId },
+        });
+        state.currentChat = {
+            ...(state.currentChat || {}),
+            lastViewedMessageId: latestId,
+        };
+
+        for (const update of response.updates || []) {
+            const message = findMessageById(update.messageId);
+            if (!message) continue;
+            const views = Array.isArray(message.views) ? message.views.slice() : [];
+            if (!views.some((item) => Number(item.userId) === Number(update.viewer?.userId))) {
+                views.push({
+                    ...update.viewer,
+                    viewedAt: update.viewedAt,
+                });
+                upsertMessage({
+                    ...message,
+                    views,
+                });
+            }
+        }
+        renderMessages();
+        renderMembers();
+    } catch {
+        // ignore
+    }
+}
+
+function openViewsModal(messageId) {
+    const message = findMessageById(messageId);
+    if (!message) return;
+
+    const views = Array.isArray(message.views) ? message.views : [];
+    const html = views.length
+        ? `
+            <div class="views-modal-list">
+                ${views.map((view) => `
+                    <article class="viewer-row">
+                        <img src="${escapeHtml(assetUrl(view.avatarUrl || defaultAvatar(view.username || "user")))}" alt="avatar" />
+                        <div>
+                            <strong>${escapeHtml(view.displayName || view.username || "Пользователь")}</strong>
+                            <span>${escapeHtml(formatDateTime(view.viewedAt))}</span>
+                        </div>
+                    </article>
+                `).join("")}
+            </div>
+        `
+        : `<p class="hint">Пока никто не просмотрел это сообщение.</p>`;
+
+    openInfoModal({
+        title: "Просмотры сообщения",
+        html,
+    });
+}
+
 function renderMessages() {
     if (!state.messages.length) {
         dom.messages.innerHTML = `<p class="hint">Пока нет сообщений</p>`;
@@ -1336,8 +1501,9 @@ function renderMessages() {
                 </div>
             `
             : "";
+        const viewsMeta = renderMessageViewsMeta(message);
 
-        return `<article class="${cls}" data-message-id="${message.id}">${header}${reply}${image}${sticker}${audio}${video}${text}${actions}</article>`;
+        return `<article class="${cls}" data-message-id="${message.id}">${header}${reply}${image}${sticker}${audio}${video}${text}${actions}${viewsMeta}</article>`;
     }).join("");
 
     for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
@@ -1373,25 +1539,80 @@ function renderMembers() {
             </div>
         `;
     }).join("");
+    const historyEntries = buildHistoryEntries();
+    const historyHtml = historyEntries.length
+        ? historyEntries.map((entry) => `
+            <article class="history-item">
+                <div class="history-avatar">
+                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>⏱</span>`}
+                </div>
+                <div class="history-copy">
+                    <strong>${escapeHtml(entry.kind === "view" ? "Просмотр" : entry.kind === "sticker" ? "Стикер" : "Событие")}</strong>
+                    <span>${escapeHtml(entry.text)}</span>
+                </div>
+                <time>${escapeHtml(formatDateTime(entry.createdAt))}</time>
+            </article>
+        `).join("")
+        : `<p class="hint">История появится после сообщений, просмотров и добавления стикеров.</p>`;
+    const stickerPackHtml = state.chatStickers.length
+        ? `
+            <div class="sticker-pack-grid">
+                ${state.chatStickers.map((sticker) => `
+                    <button type="button" class="sticker-pack-item" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                        <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                    </button>
+                `).join("")}
+            </div>
+        `
+        : `<p class="hint">Стикеров пока нет.</p>`;
 
     dom.membersBox.innerHTML = `
-        <h3 style="margin:0 0 10px">Участники</h3>
-        <div class="members-list">${membersHtml || "<p class='hint'>Участников пока нет</p>"}</div>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>История</h3>
+                <span>${historyEntries.length}</span>
+            </div>
+            <div class="history-list">${historyHtml}</div>
+        </section>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Участники</h3>
+                <span>${state.members.length}</span>
+            </div>
+            <div class="members-list">${membersHtml || "<p class='hint'>Участников пока нет</p>"}</div>
+        </section>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Стикеры</h3>
+                <span>${state.chatStickers.length}</span>
+            </div>
+            ${stickerPackHtml}
+        </section>
     `;
 
     const canManage = state.myRole === "owner" || state.myRole === "admin";
+    const canAddStickers = state.currentChat.type === "group" && state.myRole === "owner";
 
     dom.chatActions.innerHTML = `
         <div style="display:grid;gap:8px">
             <button id="myChatProfileBtn" type="button" class="btn ghost">Ник и аватар в чате</button>
             ${state.currentChat.type === "group" && canManage ? `<button id="addMemberBtn" type="button" class="btn ghost">Добавить участника</button>` : ""}
             ${state.currentChat.type === "group" && canManage ? `<button id="manageMemberBtn" type="button" class="btn ghost">Права участника</button>` : ""}
+            ${canAddStickers ? `<button id="addStickerToPackBtn" type="button" class="btn ghost">Добавить стикер в пак</button>` : ""}
         </div>
     `;
 
     document.getElementById("myChatProfileBtn")?.addEventListener("click", openMyChatProfile);
     document.getElementById("addMemberBtn")?.addEventListener("click", openAddMemberModal);
     document.getElementById("manageMemberBtn")?.addEventListener("click", openManageMemberModal);
+    document.getElementById("addStickerToPackBtn")?.addEventListener("click", () => dom.stickerInput?.click());
+    for (const button of dom.membersBox.querySelectorAll("[data-send-sticker-id]")) {
+        button.addEventListener("click", () => {
+            sendStickerFromPack(button.dataset.sendStickerId).catch((error) => {
+                toast(error.message || "Не удалось отправить стикер.");
+            });
+        });
+    }
 }
 
 function renderCurrentChat() {
@@ -1513,6 +1734,7 @@ async function loadChats() {
         state.currentChat = null;
         state.messages = [];
         state.members = [];
+        state.chatStickers = [];
     }
 
     renderChats();
@@ -1558,10 +1780,14 @@ async function openChat(chatId) {
     state.myRole = chatData.myRole;
     state.myPermissions = chatData.myPermissions;
     state.members = chatData.members || [];
+    state.chatStickers = chatData.stickers || [];
     state.messages = messagesData.messages || [];
 
     renderChats();
     renderCurrentChat();
+    markCurrentChatViewed(true).catch(() => {
+        // ignore
+    });
 
     setChatsDrawer(false);
 }
@@ -1665,6 +1891,7 @@ async function logout() {
     state.currentChat = null;
     state.messages = [];
     state.members = [];
+    state.chatStickers = [];
     state.onlineUsers.clear();
     state.typingMap.clear();
     state.callStatusByChat.clear();
@@ -2199,6 +2426,28 @@ async function sendAttachmentMessage(chatId, attachment, caption = "") {
     return response;
 }
 
+async function sendStickerFromPack(stickerId) {
+    const chatId = Number(state.currentChatId);
+    const id = Number(stickerId);
+    if (!chatId || !id) return;
+
+    const response = await api(`/api/chats/${chatId}/messages/sticker`, {
+        method: "POST",
+        body: {
+            stickerId: id,
+            replyToMessageId: state.replyToMessage?.id || null,
+        },
+    });
+
+    if (response?.message) {
+        upsertMessage(response.message);
+        updateChatWithMessage(response.message);
+        clearReplyTarget();
+        renderSelectedImage();
+        renderMessages();
+    }
+}
+
 async function startRecording(kind) {
     if (!state.currentChatId) {
         toast("Сначала откройте чат.");
@@ -2529,21 +2778,42 @@ function renderEmojiPanel() {
         ...group,
         emojis: group.key === "recent" ? state.recentEmojis : group.emojis,
     }));
+    if (state.chatStickers.length) {
+        groups.push({
+            key: "stickers",
+            icon: "🧩",
+            title: "Стикеры",
+            emojis: [],
+        });
+    }
     const availableGroups = groups.filter((group) => group.emojis.length > 0 || group.key !== "recent");
     const currentGroup = availableGroups.find((group) => group.key === state.emojiCategory)
         || availableGroups.find((group) => group.key !== "recent")
         || availableGroups[0];
-    const emojis = query
-        ? Array.from(new Set(groups.flatMap((group) => group.emojis))).filter((emoji) => emoji.includes(state.emojiQuery))
-        : (currentGroup?.emojis || []);
-    const emptyState = emojis.length
-        ? emojis.map((emoji) => `<button type="button" class="emoji-choice" data-emoji="${emoji}" aria-label="Выбрать ${emoji}">${emoji}</button>`).join("")
-        : `<div class="emoji-empty">Ничего не найдено</div>`;
+    let gridMarkup = "";
+
+    if (currentGroup?.key === "stickers") {
+        const stickers = state.chatStickers;
+        gridMarkup = stickers.length
+            ? stickers.map((sticker) => `
+                <button type="button" class="sticker-choice" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                    <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                </button>
+            `).join("")
+            : `<div class="emoji-empty">Стикеров пока нет</div>`;
+    } else {
+        const emojis = query
+            ? Array.from(new Set(groups.flatMap((group) => group.emojis))).filter((emoji) => emoji.includes(state.emojiQuery))
+            : (currentGroup?.emojis || []);
+        gridMarkup = emojis.length
+            ? emojis.map((emoji) => `<button type="button" class="emoji-choice" data-emoji="${emoji}" aria-label="Выбрать ${emoji}">${emoji}</button>`).join("")
+            : `<div class="emoji-empty">Ничего не найдено</div>`;
+    }
 
     dom.emojiPanel.innerHTML = `
         <div class="emoji-panel-shell">
             <div class="emoji-panel-head">
-                <input type="search" id="emojiSearchInput" class="emoji-search-input" placeholder="Найти эмодзи" value="${escapeHtml(state.emojiQuery)}" />
+                <input type="search" id="emojiSearchInput" class="emoji-search-input" placeholder="${currentGroup?.key === "stickers" ? "Поиск по эмодзи" : "Найти эмодзи"}" value="${escapeHtml(state.emojiQuery)}" ${currentGroup?.key === "stickers" ? "disabled" : ""} />
             </div>
             <div class="emoji-tabs" role="tablist">
                 ${availableGroups.map((group) => `
@@ -2555,7 +2825,7 @@ function renderEmojiPanel() {
                     >${group.icon}</button>
                 `).join("")}
             </div>
-            <div class="emoji-grid">${emptyState}</div>
+            <div class="emoji-grid ${currentGroup?.key === "stickers" ? "sticker-grid" : ""}">${gridMarkup}</div>
         </div>
     `;
 }
@@ -2599,6 +2869,12 @@ async function deleteMessage(messageId) {
 }
 
 function handleMessageActionClick(event) {
+    const viewsButton = event.target.closest("[data-open-views]");
+    if (viewsButton) {
+        openViewsModal(viewsButton.dataset.openViews);
+        return;
+    }
+
     const replyButton = event.target.closest("[data-reply-message-id]");
     if (replyButton) {
         setReplyTarget(replyButton.dataset.replyMessageId);
@@ -2695,6 +2971,12 @@ function applyComposerPermissions() {
     const hasChat = Boolean(state.currentChatId && state.currentChat);
     const canSend = Boolean(hasChat && state.myPermissions?.canSend);
     const canMedia = Boolean(canSend && state.myPermissions?.canSendMedia);
+    const canAddStickers = Boolean(
+        canMedia && (
+            state.currentChat?.type !== "group"
+                || state.myRole === "owner"
+        )
+    );
     const isRecording = Boolean(state.recording.kind);
     const recordLocked = Boolean(!canMedia || callState.active || state.recording.isSending);
 
@@ -2705,10 +2987,10 @@ function applyComposerPermissions() {
     dom.messageInput.disabled = !canSend || isRecording;
     dom.emojiBtn.disabled = !canSend;
     dom.imageInput.disabled = !canMedia || isRecording;
-    if (dom.stickerInput) dom.stickerInput.disabled = !canMedia || isRecording;
+    if (dom.stickerInput) dom.stickerInput.disabled = !canAddStickers || isRecording;
     if (submitBtn) submitBtn.disabled = !canSend || isRecording;
     imageButton?.classList.toggle("disabled", !canMedia || isRecording);
-    stickerButton?.classList.toggle("disabled", !canMedia || isRecording);
+    stickerButton?.classList.toggle("disabled", !canAddStickers || isRecording);
     dom.recordVoiceBtn?.classList.toggle("disabled", recordLocked && !isRecording);
     dom.recordVideoBtn?.classList.toggle("disabled", recordLocked && !isRecording);
     if (dom.recordVoiceBtn) dom.recordVoiceBtn.disabled = recordLocked && !isRecording;
@@ -3603,11 +3885,13 @@ function connectSocket() {
         ? io(SOCKET_URL, {
             auth: {
                 token: getToken(),
+                visible: document.visibilityState !== "hidden",
             },
         })
         : io({
             auth: {
                 token: getToken(),
+                visible: document.visibilityState !== "hidden",
             },
         });
 
@@ -3615,7 +3899,11 @@ function connectSocket() {
 
     socket.on("connect", () => {
         if (state.me) {
-            state.onlineUsers.set(state.me.id, true);
+            if (document.visibilityState !== "hidden") {
+                state.onlineUsers.set(state.me.id, true);
+            } else {
+                state.onlineUsers.delete(state.me.id);
+            }
             renderProfile();
             renderChats();
         }
@@ -3651,6 +3939,9 @@ function connectSocket() {
                 state.onlineUsers.set(numericId, true);
             }
         }
+        socket.emit("presence:visible", {
+            visible: document.visibilityState !== "hidden",
+        });
         renderProfile();
         renderChats();
         if (state.currentChat) {
@@ -3700,6 +3991,53 @@ function connectSocket() {
             renderMessages();
             clearTypingUser(chatId, Number(message.sender?.id));
             renderTypingBar();
+            markCurrentChatViewed().catch(() => {
+                // ignore
+            });
+        }
+    });
+
+    socket.on("message:viewed", ({ chatId, messageId, viewer, viewedAt }) => {
+        const id = Number(chatId);
+        const targetMessageId = Number(messageId);
+        if (!id || !targetMessageId || !viewer?.userId) return;
+
+        const message = state.messages.find((item) => Number(item.id) === targetMessageId);
+        if (!message) return;
+
+        const nextViews = Array.isArray(message.views) ? message.views.slice() : [];
+        const existingIndex = nextViews.findIndex((item) => Number(item.userId) === Number(viewer.userId));
+        const payload = {
+            ...viewer,
+            viewedAt,
+        };
+        if (existingIndex >= 0) {
+            nextViews[existingIndex] = payload;
+        } else {
+            nextViews.push(payload);
+        }
+
+        upsertMessage({
+            ...message,
+            views: nextViews,
+        });
+
+        if (id === state.currentChatId) {
+            renderMessages();
+            renderMembers();
+        }
+    });
+
+    socket.on("sticker:added", ({ chatId, sticker }) => {
+        const id = Number(chatId);
+        if (!id || !sticker?.id) return;
+
+        const exists = state.chatStickers.some((item) => Number(item.id) === Number(sticker.id));
+        if (!exists && id === state.currentChatId) {
+            state.chatStickers.unshift(sticker);
+            renderMembers();
+            renderEmojiPanel();
+            toast(`Новый стикер доступен: ${sticker.name || "Стикер"}`);
         }
     });
 
@@ -3994,6 +4332,31 @@ function bindUi() {
                 quality: 0.88,
                 filePrefix: "sticker",
             });
+
+            if (state.currentChat?.type === "group") {
+                if (state.myRole !== "owner") {
+                    toast("Добавлять новые стикеры в группу может только создатель.");
+                    dom.stickerInput.value = "";
+                    return;
+                }
+
+                const form = new FormData();
+                form.append("sticker", sticker);
+                form.append("name", sanitizeFileBaseName(file.name, "sticker"));
+                const response = await api(`/api/chats/${state.currentChatId}/stickers`, {
+                    method: "POST",
+                    body: form,
+                });
+                if (response?.sticker) {
+                    state.chatStickers.unshift(response.sticker);
+                    renderMembers();
+                    renderEmojiPanel();
+                    toast("Стикер добавлен в общий пак группы.");
+                }
+                dom.stickerInput.value = "";
+                return;
+            }
+
             setSelectedAttachment("sticker", sticker, {
                 originalSize: file.size,
                 optimizedSize: sticker.size,
@@ -4030,10 +4393,25 @@ function bindUi() {
     });
 
     dom.emojiPanel.addEventListener("click", (event) => {
+        event.stopPropagation();
         const categoryButton = event.target.closest("button[data-emoji-category]");
         if (categoryButton) {
             state.emojiCategory = categoryButton.dataset.emojiCategory || state.emojiCategory;
             renderEmojiPanel();
+            requestAnimationFrame(() => {
+                if (state.emojiCategory !== "stickers") {
+                    document.getElementById("emojiSearchInput")?.focus();
+                }
+            });
+            return;
+        }
+
+        const stickerButton = event.target.closest("[data-send-sticker-id]");
+        if (stickerButton) {
+            sendStickerFromPack(stickerButton.dataset.sendStickerId).catch((error) => {
+                toast(error.message || "Не удалось отправить стикер.");
+            });
+            dom.emojiPanel.classList.add("hidden");
             return;
         }
 
@@ -4045,6 +4423,7 @@ function bindUi() {
     });
 
     dom.emojiPanel.addEventListener("input", (event) => {
+        event.stopPropagation();
         if (event.target.id !== "emojiSearchInput") return;
         state.emojiQuery = String(event.target.value || "");
         renderEmojiPanel();
@@ -4133,6 +4512,11 @@ function bindUi() {
     window.visualViewport?.addEventListener("resize", updateViewportMetrics);
     window.visualViewport?.addEventListener("scroll", updateViewportMetrics);
     document.addEventListener("visibilitychange", () => {
+        if (state.socket) {
+            state.socket.emit("presence:visible", {
+                visible: document.visibilityState !== "hidden",
+            });
+        }
         if (!isMobileViewport()) return;
         if (document.visibilityState === "hidden") {
             scheduleMobileSessionLock();
@@ -4140,6 +4524,9 @@ function bindUi() {
         }
         clearMobileLockTimer();
         updateViewportMetrics();
+        markCurrentChatViewed(true).catch(() => {
+            // ignore
+        });
     });
     window.addEventListener("pagehide", () => {
         if (!state.me) return;
