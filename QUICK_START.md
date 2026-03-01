@@ -1,42 +1,34 @@
 # MIRX Quick Start
 
-## Что нужно для сохранения данных после рестарта
+## Что нужно, чтобы данные не пропадали после рестарта
 
-На хостинге нельзя использовать временный `SQLite`, если вы хотите, чтобы аккаунты, чаты и сообщения не исчезали после перезапуска сервиса.
+Для продакшена нужны два постоянных хранилища:
 
-Надёжные варианты:
+- `PostgreSQL` для аккаунтов, чатов и сообщений
+- `Supabase Storage` или `Cloudinary` для аватаров, фото, голосовых, видео и стикеров
 
-- `DATABASE_URL` -> внешний `PostgreSQL`
-- `DATA_DIR` -> путь к постоянному диску, если хостинг даёт persistent volume
+Для вашего случая лучший бесплатный вариант: `Supabase Postgres + Supabase Storage`.
 
-Для Render правильный вариант: `PostgreSQL + DATABASE_URL`.
+## Почему не Google Drive
 
-## Что нужно для сохранения фото и медиа после рестарта
+Google Drive технически можно прикрутить, но для мессенджера это плохой вариант:
 
-Локальная папка `uploads` на бесплатном хостинге не подходит для постоянного хранения. После рестарта или redeploy фото, аватары, голосовые и видеофайлы могут пропасть.
+- это не object storage
+- неудобно удалять и обновлять файлы по API
+- у шаринга и прямых ссылок лишняя сложность
+- это хуже подходит для постоянной раздачи медиа в приложении
 
-Для постоянных медиа теперь поддерживается `Cloudinary`.
+## Что уже умеет проект
 
-Если заданы:
+Приоритет storage-провайдеров такой:
 
-- `CLOUDINARY_CLOUD_NAME`
-- `CLOUDINARY_API_KEY`
-- `CLOUDINARY_API_SECRET`
+1. `Supabase Storage`
+2. `Cloudinary`
+3. локальный `uploads`
 
-то все новые загрузки уходят в Cloudinary вместо локального диска.
-
-## Что изменено в проекте
-
-Теперь в hosted/production-режиме сервер не запускается без постоянного хранилища базы.
-
-Если нет:
-
-- `DATABASE_URL`
-- и нет `DATA_DIR`
-
-то сервер завершится с явной ошибкой вместо тихого запуска на временной базе.
-
-Медиа при этом можно хранить отдельно через `Cloudinary`.
+То есть если заданы `SUPABASE_*`, новые медиафайлы будут уходить в Supabase.
+Если `SUPABASE_*` пустые, но заданы `CLOUDINARY_*`, будет использоваться Cloudinary.
+Если ничего не задано, проект пишет файлы на локальный диск.
 
 ## Локальный запуск
 
@@ -44,8 +36,6 @@
 npm install
 npm start
 ```
-
-Локально можно работать на `SQLite`, потому что файл лежит у вас на диске.
 
 Пример локального `.env`:
 
@@ -58,46 +48,74 @@ REQUIRE_PERSISTENT_DB=false
 APP_BASE_URL=http://localhost:3000
 AUTO_JOIN_DEFAULT_CHATS=false
 SEED_DEMO_DATA=false
-CLOUDINARY_CLOUD_NAME=
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
-CLOUDINARY_FOLDER_PREFIX=mirx
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_STORAGE_BUCKET=mirx-media
+MEDIA_FOLDER_PREFIX=mirx
 ```
 
-## Render
+## Render + Supabase
 
-Создайте:
+### 1. Создайте базу
 
-1. `PostgreSQL`
-2. `Web Service` для этого репозитория
+Создайте PostgreSQL и вставьте строку подключения в:
 
-### Build / Start
-
-```txt
-Build Command: npm install
-Start Command: npm start
+```env
+DATABASE_URL=postgresql://user:password@host:5432/database
 ```
 
-### Environment Variables
+### 2. Создайте Storage bucket в Supabase
 
-```txt
+В Supabase:
+
+1. откройте `Storage`
+2. создайте bucket `mirx-media`
+3. сделайте bucket `Public`
+
+### 3. Возьмите ключи из Supabase
+
+Нужны значения:
+
+- `Project URL`
+- `service_role key`
+
+Важно: нужен именно `service_role`, не `anon`.
+
+### 4. Заполните Render Environment
+
+```env
 JWT_SECRET=your-long-random-secret
 DATABASE_URL=postgresql://user:password@host:5432/database
 REQUIRE_PERSISTENT_DB=true
 APP_BASE_URL=https://your-service.onrender.com
+CORS_ORIGINS=
+DATA_DIR=
 AUTO_JOIN_DEFAULT_CHATS=false
 SEED_DEMO_DATA=false
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
-CLOUDINARY_FOLDER_PREFIX=mirx
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_STORAGE_BUCKET=mirx-media
+MEDIA_FOLDER_PREFIX=mirx
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:you@example.com
+ICE_SERVERS_JSON=
 ```
 
-`DATA_DIR` для обычного free Render не нужен.
+Cloudinary можно оставить пустым.
 
-## Проверка
+## Если хотите использовать Cloudinary вместо Supabase
 
-После деплоя откройте:
+```env
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
+MEDIA_FOLDER_PREFIX=mirx
+```
+
+## Проверка после деплоя
+
+Откройте:
 
 ```txt
 https://YOUR_DOMAIN/api/health
@@ -109,15 +127,13 @@ https://YOUR_DOMAIN/api/health
 - `database: "postgres"`
 - `persistentStorage: true`
 - `storageMode: "postgres"`
-- `mediaStorage: "cloudinary"` если включён Cloudinary
+- `mediaStorage: "supabase"` если включён Supabase Storage
 
-Если там `sqlite-ephemeral`, значит база всё ещё временная.
-
-Если `mediaStorage: "local"`, значит медиа всё ещё сохраняются на диск сервера.
+Если видите `mediaStorage: "local"`, значит файлы всё ещё сохраняются на диск сервера.
 
 ## Что сохраняется после рестарта
 
-При корректно настроенных `PostgreSQL + Cloudinary` после рестарта сохраняются:
+При корректно настроенных `PostgreSQL + Supabase Storage` после рестарта сохраняются:
 
 - аккаунты
 - пользователи
@@ -132,12 +148,10 @@ https://YOUR_DOMAIN/api/health
 
 ## Если сервер не стартует
 
-Это теперь нормальное защитное поведение.
-
 Проверьте:
 
-1. создан ли `PostgreSQL`
-2. вставлен ли `DATABASE_URL`
-3. совпадает ли `APP_BASE_URL` с реальным доменом
-4. заполнены ли ключи Cloudinary, если хотите хранить медиа не на диске
+1. заполнен ли `DATABASE_URL`
+2. создан ли bucket `mirx-media`
+3. заполнены ли `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY`
+4. совпадает ли `APP_BASE_URL` с реальным доменом
 5. сделан ли `Redeploy` после изменения env

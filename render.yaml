@@ -23,11 +23,17 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: "mirx-media"
+      - key: MEDIA_FOLDER_PREFIX
+        value: "mirx"
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: CLOUDINARY_FOLDER_PREFIX
-        value: "mirx"

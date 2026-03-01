@@ -42,10 +42,13 @@ const REQUIRE_PERSISTENT_DB = ['1', 'true', 'yes', 'on'].includes(
 const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
 const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com').trim();
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const SUPABASE_STORAGE_BUCKET = String(process.env.SUPABASE_STORAGE_BUCKET || 'mirx-media').trim();
 const CLOUDINARY_CLOUD_NAME = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
 const CLOUDINARY_API_KEY = String(process.env.CLOUDINARY_API_KEY || '').trim();
 const CLOUDINARY_API_SECRET = String(process.env.CLOUDINARY_API_SECRET || '').trim();
-const CLOUDINARY_FOLDER_PREFIX = String(process.env.CLOUDINARY_FOLDER_PREFIX || 'mirx').trim();
+const MEDIA_FOLDER_PREFIX = String(process.env.MEDIA_FOLDER_PREFIX || process.env.CLOUDINARY_FOLDER_PREFIX || 'mirx').trim();
 const STORAGE_ROOT = DATA_DIR || __dirname;
 const DB_PATH = path.join(STORAGE_ROOT, 'data', 'mirnachat-online.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -100,7 +103,10 @@ const mediaStorage = createMediaStorage({
     cloudName: CLOUDINARY_CLOUD_NAME,
     apiKey: CLOUDINARY_API_KEY,
     apiSecret: CLOUDINARY_API_SECRET,
-    folderPrefix: CLOUDINARY_FOLDER_PREFIX,
+    folderPrefix: MEDIA_FOLDER_PREFIX,
+    supabaseUrl: SUPABASE_URL,
+    supabaseServiceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+    supabaseStorageBucket: SUPABASE_STORAGE_BUCKET,
 });
 
 const messageUpload = mediaStorage.createUpload({
