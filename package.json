@@ -4,7 +4,7 @@
   "description": "Real-time messenger with group owners, image sharing, and WebRTC calls",
   "main": "server.js",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
     "build:frontend": "node scripts/generate-client-config.js",
