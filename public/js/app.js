@@ -60,10 +60,10 @@ function readStoredTokenInfo() {
     }
 
     try {
-        const persistedToken = window.localStorage?.getItem(TOKEN_KEY) || "";
+        window.localStorage?.removeItem(TOKEN_KEY);
         return {
-            token: persistedToken,
-            source: persistedToken ? "local" : "",
+            token: "",
+            source: "",
         };
     } catch {
         return {
@@ -109,6 +109,7 @@ const state = {
     emojiQuery: "",
     emojiCategory: "recent",
     recentEmojis: [],
+    mobileLockTimerId: null,
     recording: {
         chatId: null,
         kind: null,
@@ -613,6 +614,12 @@ function updateViewportMetrics() {
     document.body.classList.toggle("keyboard-open", isMobileViewport() && keyboardOffset > 96);
 }
 
+function clearMobileLockTimer() {
+    if (!state.mobileLockTimerId) return;
+    clearTimeout(state.mobileLockTimerId);
+    state.mobileLockTimerId = null;
+}
+
 function sanitizeFileBaseName(fileName, fallback = "upload") {
     const clean = String(fileName || fallback)
         .replace(/\.[^.]+$/, "")
@@ -750,11 +757,10 @@ function setToken(token) {
     try {
         if (state.token) {
             window.sessionStorage?.setItem(TOKEN_KEY, state.token);
-            window.localStorage?.setItem(TOKEN_KEY, state.token);
         } else {
             window.sessionStorage?.removeItem(TOKEN_KEY);
-            window.localStorage?.removeItem(TOKEN_KEY);
         }
+        window.localStorage?.removeItem(TOKEN_KEY);
     } catch {
         // ignore
     }
@@ -1429,6 +1435,7 @@ async function loadSession() {
         }
 
         state.me = data.user;
+        clearMobileLockTimer();
         clearResumeSession();
         setAuthMode(true);
         renderProfile();
@@ -1449,6 +1456,7 @@ async function continueStoredMobileSession() {
 
     setToken(state.resumeSession.token);
     state.me = state.resumeSession.user;
+    clearMobileLockTimer();
     clearResumeSession();
     setAuthMode(true);
     renderProfile();
@@ -1469,6 +1477,30 @@ function switchStoredMobileSession() {
     renderProfile();
     switchTab("login");
     setAuthMode(false);
+}
+
+function persistMobileSessionExit() {
+    if (!isMobileViewport()) return;
+    try {
+        window.sessionStorage?.removeItem(TOKEN_KEY);
+        window.localStorage?.removeItem(TOKEN_KEY);
+    } catch {
+        // ignore
+    }
+}
+
+function scheduleMobileSessionLock() {
+    if (!isMobileViewport() || !state.me) return;
+    clearMobileLockTimer();
+    state.mobileLockTimerId = window.setTimeout(() => {
+        if (document.visibilityState !== "hidden" || !state.me) {
+            clearMobileLockTimer();
+            return;
+        }
+        logout().catch(() => {
+            // ignore
+        });
+    }, 15000);
 }
 
 async function loadChats() {
@@ -1551,6 +1583,7 @@ async function login(event) {
 
         setToken(data.token);
         state.me = data.user;
+        clearMobileLockTimer();
         clearResumeSession();
         setAuthMode(true);
         renderProfile();
@@ -1589,6 +1622,7 @@ async function register(event) {
 
         setToken(data.token);
         state.me = data.user;
+        clearMobileLockTimer();
         clearResumeSession();
         setAuthMode(true);
         renderProfile();
@@ -1611,6 +1645,7 @@ async function register(event) {
 }
 
 async function logout() {
+    clearMobileLockTimer();
     if (state.recording.kind) {
         await stopRecording({ sendAfterStop: false, cancel: true });
     } else {
@@ -4097,6 +4132,19 @@ function bindUi() {
     });
     window.visualViewport?.addEventListener("resize", updateViewportMetrics);
     window.visualViewport?.addEventListener("scroll", updateViewportMetrics);
+    document.addEventListener("visibilitychange", () => {
+        if (!isMobileViewport()) return;
+        if (document.visibilityState === "hidden") {
+            scheduleMobileSessionLock();
+            return;
+        }
+        clearMobileLockTimer();
+        updateViewportMetrics();
+    });
+    window.addEventListener("pagehide", () => {
+        if (!state.me) return;
+        persistMobileSessionExit();
+    });
 
     document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
@@ -4124,6 +4172,7 @@ function bindUi() {
     });
 
     window.addEventListener("beforeunload", () => {
+        persistMobileSessionExit();
         if (state.recording.kind) {
             stopRecording({ sendAfterStop: false, cancel: true }).catch(() => {
                 // ignore
