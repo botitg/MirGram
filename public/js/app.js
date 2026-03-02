@@ -2009,23 +2009,16 @@ async function loadSession() {
 
     try {
         const data = await api("/api/auth/me");
-        if (isMobileViewport() && state.tokenSource === "local") {
-            state.resumeSession = {
-                token: getToken(),
-                user: data.user,
-            };
-            state.me = null;
-            renderResumeSessionCard();
-            setAuthMode(false);
-            return false;
-        }
-
-        state.me = data.user;
+        state.resumeSession = {
+            token: getToken(),
+            user: data.user,
+        };
+        state.me = null;
         clearMobileLockTimer();
-        clearResumeSession();
-        setAuthMode(true);
         renderProfile();
-        return true;
+        renderResumeSessionCard();
+        setAuthMode(false);
+        return false;
     } catch {
         clearResumeSession();
         setToken("");

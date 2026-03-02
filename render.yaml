@@ -16,7 +16,7 @@ services:
       - key: REQUIRE_PERSISTENT_DB
         value: "true"
       - key: AUTO_JOIN_DEFAULT_CHATS
-        value: "false"
+        value: "true"
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY

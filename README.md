@@ -54,7 +54,7 @@ npm start
 - `JWT_SECRET` = длинная случайная строка
 - `DATABASE_URL` = строка подключения к PostgreSQL
 - `APP_BASE_URL` = `https://your-app-name.onrender.com`
-- `AUTO_JOIN_DEFAULT_CHATS` = `false`
+- `AUTO_JOIN_DEFAULT_CHATS` = `true`
 - `SEED_DEMO_DATA` = `false`
 - `VAPID_PUBLIC_KEY` = публичный ключ для web push
 - `VAPID_PRIVATE_KEY` = приватный ключ для web push
@@ -116,7 +116,7 @@ npm start
 - `JWT_SECRET` - обязательно
 - `APP_BASE_URL` - адрес вашего приложения
 - `CORS_ORIGINS` - пусто для single-host deploy
-- `AUTO_JOIN_DEFAULT_CHATS` - `false`
+- `AUTO_JOIN_DEFAULT_CHATS` - `true`
 - `SEED_DEMO_DATA` - `false`
 - `ICE_SERVERS_JSON` - опционально, для стабильных звонков через TURN
 

@@ -91,6 +91,26 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '4mb' }));
+app.use((req, res, next) => {
+    const requestPath = String(req.path || '');
+    const shouldDisableCache = (
+        requestPath === '/'
+        || requestPath === '/index.html'
+        || requestPath === '/config.js'
+        || requestPath === '/sw.js'
+        || requestPath === '/manifest.webmanifest'
+        || requestPath.startsWith('/js/')
+        || requestPath.startsWith('/css/')
+    );
+
+    if (shouldDisableCache) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+
+    next();
+});
 app.use('/uploads', express.static(UPLOADS_ROOT));
 app.use(express.static(PUBLIC_DIR));
 
@@ -140,6 +160,9 @@ const pushEnabled = Boolean(webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const userRoom = (userId) => `user:${userId}`;
 const chatRoom = (chatId) => `chat:${chatId}`;
 const callRoom = (chatId) => `call:${chatId}`;
+const MOJIBAKE_PAIR_RE = /[РС][\u0400-\u04ff]/g;
+const MOJIBAKE_DIRECT_RE = /рџ|в[\u00a0-\u203a]|Ð|Ñ|[ЃЌЏ™ќ]/g;
+let windows1251EncoderMap = null;
 
 function nowIso() {
     return new Date().toISOString();
@@ -197,6 +220,96 @@ function buildDefaultAvatar(seed = 'MIRX') {
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
+function getWindows1251EncoderMap() {
+    if (windows1251EncoderMap) {
+        return windows1251EncoderMap;
+    }
+
+    windows1251EncoderMap = new Map();
+    const decoder = new TextDecoder('windows-1251');
+    for (let byte = 0; byte < 256; byte += 1) {
+        const char = decoder.decode(Uint8Array.of(byte));
+        if (!windows1251EncoderMap.has(char)) {
+            windows1251EncoderMap.set(char, byte);
+        }
+    }
+    return windows1251EncoderMap;
+}
+
+function countMojibakeFragments(value) {
+    const input = String(value || '');
+    const pairMatches = input.match(MOJIBAKE_PAIR_RE)?.length || 0;
+    const directMatches = input.match(MOJIBAKE_DIRECT_RE)?.length || 0;
+    return Math.floor(pairMatches / 2) + directMatches;
+}
+
+function encodeWindows1251(value) {
+    const encoderMap = getWindows1251EncoderMap();
+    const bytes = [];
+    for (const char of String(value || '')) {
+        const byte = encoderMap.get(char);
+        if (typeof byte === 'undefined') {
+            return null;
+        }
+        bytes.push(byte);
+    }
+    return Uint8Array.from(bytes);
+}
+
+function repairLikelyMojibake(value) {
+    const input = String(value ?? '');
+    if (!input || countMojibakeFragments(input) === 0) {
+        return input;
+    }
+
+    let current = input;
+    for (let pass = 0; pass < 3; pass += 1) {
+        const beforeScore = countMojibakeFragments(current);
+        if (!beforeScore) {
+            break;
+        }
+
+        const encoded = encodeWindows1251(current);
+        if (!encoded) {
+            break;
+        }
+
+        let next = '';
+        try {
+            next = new TextDecoder('utf-8', { fatal: true }).decode(encoded);
+        } catch {
+            break;
+        }
+
+        if (!next || next === current) {
+            break;
+        }
+
+        const afterScore = countMojibakeFragments(next);
+        if (afterScore > beforeScore) {
+            break;
+        }
+
+        current = next;
+        if (!afterScore) {
+            break;
+        }
+    }
+
+    return current;
+}
+
+function normalizeTextInput(value, { trim = false, normalizeForm = false } = {}) {
+    let output = repairLikelyMojibake(String(value ?? ''));
+    if (normalizeForm) {
+        output = output.normalize('NFKC');
+    }
+    if (trim) {
+        output = output.trim();
+    }
+    return output;
+}
+
 function toPublicUrl(value) {
     const input = String(value || '').trim();
     if (!input) return null;
@@ -208,9 +321,10 @@ function toPublicUrl(value) {
 }
 
 function normalizeUsername(value) {
-    return String(value || '')
-        .normalize('NFKC')
-        .trim();
+    return normalizeTextInput(value, {
+        trim: true,
+        normalizeForm: true,
+    });
 }
 
 function normalizeUsernameKey(value) {
@@ -246,6 +360,215 @@ async function readUser(userId) {
          WHERE id = ?`,
         [userId]
     );
+}
+
+async function repairStoredTextEncoding() {
+    const users = await db.all(`
+        SELECT id, username, username_key AS "usernameKey", bio
+        FROM users
+        ORDER BY id ASC
+    `);
+
+    for (const user of users) {
+        const nextBio = normalizeTextInput(user.bio);
+        let nextUsername = normalizeUsername(user.username);
+        let nextUsernameKey = normalizeUsernameKey(nextUsername);
+
+        const duplicate = users.find((candidate) => (
+            Number(candidate.id) !== Number(user.id)
+            && normalizeUsernameKey(candidate.username) === nextUsernameKey
+        ));
+        if (duplicate) {
+            nextUsername = user.username;
+            nextUsernameKey = normalizeUsernameKey(user.username);
+        }
+
+        if (
+            nextUsername !== user.username
+            || nextUsernameKey !== (user.usernameKey || '')
+            || nextBio !== String(user.bio || '')
+        ) {
+            await db.run(
+                `UPDATE users
+                 SET username = ?, username_key = ?, bio = ?
+                 WHERE id = ?`,
+                [nextUsername, nextUsernameKey, nextBio, user.id]
+            );
+        }
+    }
+
+    const chats = await db.all(`
+        SELECT id, name
+        FROM chats
+        WHERE name IS NOT NULL AND name <> ''
+        ORDER BY id ASC
+    `);
+    for (const chat of chats) {
+        const nextName = normalizeTextInput(chat.name);
+        if (nextName !== chat.name) {
+            await db.run(`UPDATE chats SET name = ? WHERE id = ?`, [nextName, chat.id]);
+        }
+    }
+
+    const members = await db.all(`
+        SELECT chat_id AS "chatId", user_id AS "userId", group_nick AS "groupNick"
+        FROM chat_members
+        WHERE group_nick IS NOT NULL AND group_nick <> ''
+    `);
+    for (const member of members) {
+        const nextGroupNick = normalizeTextInput(member.groupNick, { trim: true });
+        if (nextGroupNick !== member.groupNick) {
+            await db.run(
+                `UPDATE chat_members
+                 SET group_nick = ?
+                 WHERE chat_id = ? AND user_id = ?`,
+                [nextGroupNick || null, member.chatId, member.userId]
+            );
+        }
+    }
+
+    const messages = await db.all(`
+        SELECT id, text, sender_name AS "senderName"
+        FROM messages
+        ORDER BY id ASC
+    `);
+    for (const message of messages) {
+        const nextText = normalizeTextInput(message.text);
+        const nextSenderName = normalizeTextInput(message.senderName);
+        if (nextText !== message.text || nextSenderName !== message.senderName) {
+            await db.run(
+                `UPDATE messages
+                 SET text = ?, sender_name = ?
+                 WHERE id = ?`,
+                [nextText, nextSenderName, message.id]
+            );
+        }
+    }
+
+    const stickers = await db.all(`
+        SELECT id, name
+        FROM chat_stickers
+        ORDER BY id ASC
+    `);
+    for (const sticker of stickers) {
+        const nextName = normalizeTextInput(sticker.name, { trim: true });
+        if (nextName !== sticker.name) {
+            await db.run(`UPDATE chat_stickers SET name = ? WHERE id = ?`, [nextName || 'Стикер', sticker.id]);
+        }
+    }
+}
+
+async function listDefaultChatRows() {
+    return db.all(`
+        SELECT id, owner_id AS "ownerId"
+        FROM chats
+        WHERE is_default = 1 AND type = 'group'
+        ORDER BY id ASC
+    `);
+}
+
+async function joinUserToDefaultChats(userId) {
+    const defaultChats = await listDefaultChatRows();
+    if (!defaultChats.length) {
+        return;
+    }
+
+    for (const chat of defaultChats) {
+        await db.run(
+            `INSERT OR IGNORE INTO chat_members (
+                chat_id, user_id, role, group_nick, group_avatar_url,
+                can_send, can_send_media, can_start_calls, joined_at
+             ) VALUES (?, ?, ?, NULL, NULL, 1, 1, 1, ?)`,
+            [
+                chat.id,
+                userId,
+                Number(chat.ownerId) === Number(userId) ? 'owner' : 'member',
+                nowIso(),
+            ]
+        );
+    }
+}
+
+async function ensureDefaultChatSetup() {
+    const users = await db.all(`SELECT id FROM users ORDER BY id ASC`);
+    if (!users.length) {
+        return;
+    }
+
+    let defaultChats = await listDefaultChatRows();
+    if (!defaultChats.length) {
+        const candidate = await db.get(
+            `SELECT id, owner_id AS "ownerId"
+             FROM chats
+             WHERE type = 'group'
+               AND (
+                    LOWER(name) = LOWER(?)
+                    OR LOWER(name) = LOWER(?)
+                    OR LOWER(name) = LOWER(?)
+               )
+             ORDER BY id ASC
+             LIMIT 1`,
+            ['Общий чат', 'MIRX Лобби', 'MIRX Lobby']
+        );
+
+        let targetChatId = candidate?.id || null;
+        if (!targetChatId) {
+            const groups = await db.all(
+                `SELECT id
+                 FROM chats
+                 WHERE type = 'group'
+                 ORDER BY id ASC
+                 LIMIT 2`
+            );
+            if (groups.length === 1) {
+                targetChatId = groups[0].id;
+            }
+        }
+
+        if (targetChatId) {
+            await db.run(`UPDATE chats SET is_default = 1 WHERE id = ?`, [targetChatId]);
+        } else {
+            const ownerId = Number(users[0].id);
+            const result = await db.run(
+                `INSERT INTO chats (name, type, owner_id, is_default, created_at)
+                 VALUES (?, 'group', ?, 1, ?)`,
+                ['Общий чат', ownerId, nowIso()]
+            );
+            const chatId = result.lastID;
+
+            for (const user of users) {
+                await db.run(
+                    `INSERT OR IGNORE INTO chat_members (
+                        chat_id, user_id, role, group_nick, group_avatar_url,
+                        can_send, can_send_media, can_start_calls, joined_at
+                     ) VALUES (?, ?, ?, NULL, NULL, 1, 1, 1, ?)`,
+                    [
+                        chatId,
+                        user.id,
+                        Number(user.id) === ownerId ? 'owner' : 'member',
+                        nowIso(),
+                    ]
+                );
+            }
+
+            await createMessage({
+                chatId,
+                userId: ownerId,
+                type: 'system',
+                text: 'Добро пожаловать в MIRX. Это общий чат для общения.',
+            });
+        }
+
+        defaultChats = await listDefaultChatRows();
+    }
+
+    if (!defaultChats.length) {
+        return;
+    }
+
+    for (const user of users) {
+        await joinUserToDefaultChats(user.id);
+    }
 }
 
 async function readMembership(chatId, userId) {
@@ -1168,6 +1491,8 @@ async function initializeDatabase() {
     }
 
     await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_username_key ON users(username_key);`);
+    await repairStoredTextEncoding();
+    await ensureDefaultChatSetup();
 
     const existingUsers = await db.get('SELECT COUNT(*) AS total FROM users');
     if ((existingUsers?.total || 0) > 0 || !SEED_DEMO_DATA) {
@@ -1262,18 +1587,7 @@ app.post(
 
         const newUserId = result.lastID;
 
-        if (AUTO_JOIN_DEFAULT_CHATS) {
-            const defaultChats = await db.all('SELECT id FROM chats WHERE is_default = 1');
-            for (const chat of defaultChats) {
-                await db.run(
-                    `INSERT OR IGNORE INTO chat_members (
-                    chat_id, user_id, role, group_nick, group_avatar_url,
-                    can_send, can_send_media, can_start_calls, joined_at
-                 ) VALUES (?, ?, 'member', NULL, NULL, 1, 1, 1, ?)`,
-                    [chat.id, newUserId, nowIso()]
-                );
-            }
-        }
+        await joinUserToDefaultChats(newUserId);
 
         const user = await readUser(newUserId);
         const token = createToken(user.id);
@@ -1337,7 +1651,9 @@ app.put(
         const nextUsername = req.body.username ? normalizeUsername(req.body.username) : current.username;
         const nextUsernameKey = normalizeUsernameKey(nextUsername);
         const nextAvatar = req.body.avatarUrl ? String(req.body.avatarUrl).trim() : current.avatarUrl;
-        const nextBio = typeof req.body.bio === 'string' ? req.body.bio.trim() : current.bio;
+        const nextBio = typeof req.body.bio === 'string'
+            ? normalizeTextInput(req.body.bio, { trim: true })
+            : current.bio;
         const nextPassword = req.body.password ? String(req.body.password) : null;
 
         const usernameError = validateUsername(nextUsername);
@@ -1450,8 +1766,7 @@ app.get(
     '/api/users/search',
     authMiddleware,
     withApi(async (req, res) => {
-        const q = String(req.query.q || '')
-            .trim();
+        const q = normalizeTextInput(req.query.q, { trim: true });
         const qKey = normalizeUsernameKey(q);
         const limit = Math.max(1, Math.min(Number(req.query.limit || 30), 100));
 
@@ -1473,8 +1788,7 @@ app.get(
     authMiddleware,
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const q = String(req.query.q || '')
-            .trim();
+        const q = normalizeTextInput(req.query.q, { trim: true });
         const qKey = normalizeUsernameKey(q);
         const limit = Math.max(1, Math.min(Number(req.query.limit || 120), 300));
 
@@ -1741,7 +2055,7 @@ app.post(
         assert(membership.role === 'owner', 'Добавлять стикеры может только создатель группы.', 403);
         assert(req.file, 'Файл не получен.', 400);
 
-        const name = String(req.body.name || req.file.originalname || 'Стикер').trim().slice(0, 64) || 'Стикер';
+        const name = normalizeTextInput(req.body.name || req.file.originalname || 'Стикер', { trim: true }).slice(0, 64) || 'Стикер';
         const imageUrl = await storeUploadedFile(req.file, {
             localFolder: 'images',
             cloudFolder: 'stickers',
@@ -1828,7 +2142,7 @@ app.post(
     '/api/chats/group',
     authMiddleware,
     withApi(async (req, res) => {
-        const name = String(req.body.name || '').trim();
+        const name = normalizeTextInput(req.body.name, { trim: true });
         const memberIds = Array.isArray(req.body.memberIds) ? req.body.memberIds.map(Number) : [];
 
         assert(name.length >= 3 && name.length <= 80, 'Название группы должно быть от 3 до 80 символов.', 400);
@@ -1945,7 +2259,9 @@ app.put(
             assert(!(target.role === 'owner' && targetId !== req.user.id), 'В группе может быть только один owner.', 400);
         }
 
-        const groupNick = typeof req.body.groupNick === 'string' ? req.body.groupNick.trim() : target.groupNick;
+        const groupNick = typeof req.body.groupNick === 'string'
+            ? normalizeTextInput(req.body.groupNick, { trim: true })
+            : target.groupNick;
         const groupAvatarUrl = typeof req.body.groupAvatarUrl === 'string' ? req.body.groupAvatarUrl.trim() : target.groupAvatarUrl;
 
         assert(String(groupNick || '').length <= 40, 'Ник в группе не должен быть длиннее 40 символов.', 400);
@@ -1999,7 +2315,9 @@ app.put(
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Доступ запрещён.', 403);
 
-        const groupNick = typeof req.body.groupNick === 'string' ? req.body.groupNick.trim() : membership.groupNick;
+        const groupNick = typeof req.body.groupNick === 'string'
+            ? normalizeTextInput(req.body.groupNick, { trim: true })
+            : membership.groupNick;
         const groupAvatarUrl = typeof req.body.groupAvatarUrl === 'string' ? req.body.groupAvatarUrl.trim() : membership.groupAvatarUrl;
 
         assert(String(groupNick || '').length <= 40, 'Ник в чате не должен быть длиннее 40 символов.', 400);
@@ -2066,7 +2384,7 @@ app.post(
     authMiddleware,
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const text = String(req.body.text || '').trim();
+        const text = normalizeTextInput(req.body.text, { trim: true });
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         assert(text.length > 0, 'Сообщение не может быть пустым.', 400);
@@ -2104,7 +2422,7 @@ app.post(
     },
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const caption = String(req.body.caption || '').trim();
+        const caption = normalizeTextInput(req.body.caption, { trim: true });
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
@@ -2148,7 +2466,7 @@ app.post(
     },
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const caption = String(req.body.caption || '').trim();
+        const caption = normalizeTextInput(req.body.caption, { trim: true });
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
@@ -2192,7 +2510,7 @@ app.post(
     },
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const caption = String(req.body.caption || '').trim();
+        const caption = normalizeTextInput(req.body.caption, { trim: true });
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
         const stickerId = Number(req.body.stickerId || 0) || null;
 
@@ -2248,7 +2566,7 @@ app.post(
     },
     withApi(async (req, res) => {
         const chatId = Number(req.params.chatId);
-        const caption = String(req.body.caption || '').trim();
+        const caption = normalizeTextInput(req.body.caption, { trim: true });
         const replyToMessageId = Number(req.body.replyToMessageId || 0) || null;
 
         const membership = await readMembership(chatId, req.user.id);
