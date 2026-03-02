@@ -249,6 +249,10 @@ const state = {
     emojiCategory: "recent",
     recentEmojis: [],
     mobileLockTimerId: null,
+    viewportBaseHeight: 0,
+    viewportBaseWidth: 0,
+    viewportUpdateRaf: 0,
+    composerFocus: false,
     recording: {
         chatId: null,
         kind: null,
@@ -636,6 +640,41 @@ function isMobileViewport() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
 }
 
+function hasCurrentChatSelection() {
+    return Boolean(state.currentChatId && state.currentChat);
+}
+
+function syncMobileLayoutState() {
+    const mobile = isMobileViewport();
+    const chatActive = mobile && hasCurrentChatSelection();
+    document.body.classList.toggle("mobile-chat-active", chatActive);
+    document.body.classList.toggle("composer-focused", chatActive && state.composerFocus);
+}
+
+function keepComposerVisible() {
+    if (!isMobileViewport() || !state.composerFocus || !hasCurrentChatSelection()) {
+        return;
+    }
+
+    dom.composer?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+    });
+    dom.messageInput?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+    });
+}
+
+function scheduleViewportMetrics() {
+    if (state.viewportUpdateRaf) return;
+
+    state.viewportUpdateRaf = window.requestAnimationFrame(() => {
+        state.viewportUpdateRaf = 0;
+        updateViewportMetrics();
+    });
+}
+
 function setChatsDrawer(open) {
     const shouldOpen = Boolean(open && isMobileViewport() && state.me);
 
@@ -762,14 +801,46 @@ function setReplyTarget(messageId) {
 }
 
 function updateViewportMetrics() {
-    const appHeight = window.visualViewport?.height || window.innerHeight;
-    const keyboardOffset = Math.max(
-        0,
-        Math.round((window.innerHeight || appHeight) - appHeight - (window.visualViewport?.offsetTop || 0))
+    const visualViewport = window.visualViewport;
+    const viewportHeight = Math.round(
+        visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0
     );
-    document.documentElement.style.setProperty("--app-height", `${Math.round(appHeight)}px`);
+    const viewportWidth = Math.round(
+        visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0
+    );
+    const offsetTop = Math.max(0, Math.round(visualViewport?.offsetTop || 0));
+    const activeComposer = document.activeElement === dom.messageInput;
+    const mobile = isMobileViewport();
+    const widthChanged = Boolean(state.viewportBaseWidth && Math.abs(viewportWidth - state.viewportBaseWidth) > 80);
+    const canRefreshBaseline = !mobile || !activeComposer || viewportHeight >= state.viewportBaseHeight - 48 || widthChanged;
+
+    if (!state.viewportBaseHeight || canRefreshBaseline) {
+        state.viewportBaseHeight = viewportHeight;
+    } else {
+        state.viewportBaseHeight = Math.max(state.viewportBaseHeight, viewportHeight);
+    }
+
+    state.viewportBaseWidth = viewportWidth;
+    state.composerFocus = activeComposer;
+
+    const keyboardOffset = mobile
+        ? Math.max(0, state.viewportBaseHeight - viewportHeight - offsetTop)
+        : 0;
+    const keyboardOpen = mobile && (keyboardOffset > 72 || (activeComposer && state.viewportBaseHeight - viewportHeight > 40));
+
+    if (!keyboardOpen && !activeComposer) {
+        state.viewportBaseHeight = viewportHeight;
+    }
+
+    document.documentElement.style.setProperty("--app-height", `${viewportHeight}px`);
     document.documentElement.style.setProperty("--keyboard-offset", `${keyboardOffset}px`);
-    document.body.classList.toggle("keyboard-open", isMobileViewport() && keyboardOffset > 96);
+    document.documentElement.style.setProperty("--viewport-offset-top", `${offsetTop}px`);
+    document.body.classList.toggle("keyboard-open", keyboardOpen);
+    syncMobileLayoutState();
+
+    if (keyboardOpen) {
+        keepComposerVisible();
+    }
 }
 
 function clearMobileLockTimer() {
@@ -998,6 +1069,8 @@ function setAuthMode(isAuth) {
         setChatsDrawer(false);
         closeProfileSheet();
     }
+    syncMobileLayoutState();
+    scheduleViewportMetrics();
 }
 
 function clearResumeSession() {
@@ -1986,6 +2059,7 @@ function renderCurrentChat() {
         dom.emptyState.classList.remove("hidden");
         dom.chatView.classList.add("hidden");
         applyComposerPermissions();
+        syncMobileLayoutState();
         return;
     }
 
@@ -1997,6 +2071,7 @@ function renderCurrentChat() {
     renderMessages();
     renderMembers();
     applyComposerPermissions();
+    syncMobileLayoutState();
 }
 
 async function loadSession() {
@@ -2141,6 +2216,7 @@ async function openChat(chatId) {
     });
 
     setChatsDrawer(false);
+    scheduleViewportMetrics();
 }
 
 async function login(event) {
@@ -5005,26 +5081,31 @@ function bindUi() {
 
     const onMobileComposerFocus = () => {
         if (!isMobileViewport()) return;
-        setChatsDrawer(false);
+        state.composerFocus = true;
         clearSearchResults();
-        closeProfileSheet();
-        closeCallOverlay();
+        dom.emojiPanel?.classList.add("hidden");
         requestNotificationsFromGesture().catch(() => {
             // ignore
         });
-        setTimeout(updateViewportMetrics, 40);
+        scheduleViewportMetrics();
+        window.setTimeout(scheduleViewportMetrics, 120);
+        window.setTimeout(keepComposerVisible, 180);
+        window.setTimeout(keepComposerVisible, 320);
     };
     dom.messageInput.addEventListener("focus", onMobileComposerFocus);
-    dom.messageInput.addEventListener("blur", () => setTimeout(updateViewportMetrics, 80));
+    dom.messageInput.addEventListener("blur", () => {
+        state.composerFocus = false;
+        window.setTimeout(scheduleViewportMetrics, 80);
+    });
 
     window.addEventListener("resize", () => {
         if (!isMobileViewport()) {
             setChatsDrawer(false);
         }
-        updateViewportMetrics();
+        scheduleViewportMetrics();
     });
-    window.visualViewport?.addEventListener("resize", updateViewportMetrics);
-    window.visualViewport?.addEventListener("scroll", updateViewportMetrics);
+    window.visualViewport?.addEventListener("resize", scheduleViewportMetrics);
+    window.visualViewport?.addEventListener("scroll", scheduleViewportMetrics);
     document.addEventListener("visibilitychange", () => {
         if (state.socket) {
             state.socket.emit("presence:visible", {
@@ -5037,7 +5118,7 @@ function bindUi() {
             return;
         }
         clearMobileLockTimer();
-        updateViewportMetrics();
+        scheduleViewportMetrics();
         markCurrentChatViewed(true).catch(() => {
             // ignore
         });
@@ -5101,7 +5182,7 @@ async function init() {
     bindUi();
     repairTextTree(document.body);
     setChatsDrawer(false);
-    updateViewportMetrics();
+    scheduleViewportMetrics();
     renderChats();
     renderCurrentChat();
     renderProfile();
