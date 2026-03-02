@@ -39,12 +39,134 @@ function assetUrl(pathOrUrl) {
     return withBaseUrl(value.startsWith("/") ? value : `/${value}`);
 }
 
-function repairMojibake(value) {
-    return value;
+const MOJIBAKE_FRAGMENT_RE = /Р[\u0400-\u04ff]|С[\u0400-\u04ff]|рџ|в[\u00a0-\u203a]|Ð|Ñ|[ЃЌЏ™ќ]/g;
+let windows1251EncoderMap = null;
+let socketIoLoaderPromise = null;
+let socketIoWarningShown = false;
+
+function getWindows1251EncoderMap() {
+    if (windows1251EncoderMap) {
+        return windows1251EncoderMap;
+    }
+
+    try {
+        const decoder = new TextDecoder("windows-1251");
+        windows1251EncoderMap = new Map();
+        for (let byte = 0; byte < 256; byte += 1) {
+            const char = decoder.decode(Uint8Array.of(byte));
+            if (!windows1251EncoderMap.has(char)) {
+                windows1251EncoderMap.set(char, byte);
+            }
+        }
+    } catch {
+        windows1251EncoderMap = new Map();
+    }
+
+    return windows1251EncoderMap;
 }
 
-function repairTextTree(_) {
-    // Source files are stored as UTF-8. Runtime text repair is intentionally disabled.
+function countMojibakeFragments(value) {
+    return String(value || "").match(MOJIBAKE_FRAGMENT_RE)?.length || 0;
+}
+
+function encodeWindows1251(value) {
+    const encoderMap = getWindows1251EncoderMap();
+    if (!encoderMap.size) {
+        return null;
+    }
+
+    const bytes = [];
+    for (const char of String(value || "")) {
+        const byte = encoderMap.get(char);
+        if (typeof byte === "undefined") {
+            return null;
+        }
+        bytes.push(byte);
+    }
+
+    return Uint8Array.from(bytes);
+}
+
+function repairMojibake(value) {
+    const input = String(value ?? "");
+    if (!input || countMojibakeFragments(input) === 0) {
+        return input;
+    }
+
+    let current = input;
+    for (let pass = 0; pass < 3; pass += 1) {
+        const beforeScore = countMojibakeFragments(current);
+        const encoded = encodeWindows1251(current);
+        if (!encoded) {
+            break;
+        }
+
+        let next = "";
+        try {
+            next = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+        } catch {
+            break;
+        }
+
+        if (!next || next === current) {
+            break;
+        }
+
+        const afterScore = countMojibakeFragments(next);
+        if (afterScore > beforeScore) {
+            break;
+        }
+
+        current = next;
+        if (afterScore === 0) {
+            break;
+        }
+    }
+
+    return current;
+}
+
+function repairTextTree(root) {
+    if (!root) return;
+
+    if (root.nodeType === Node.TEXT_NODE) {
+        const repaired = repairMojibake(root.nodeValue);
+        if (repaired !== root.nodeValue) {
+            root.nodeValue = repaired;
+        }
+        return;
+    }
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) {
+        textNodes.push(walker.currentNode);
+    }
+
+    for (const node of textNodes) {
+        const repaired = repairMojibake(node.nodeValue);
+        if (repaired !== node.nodeValue) {
+            node.nodeValue = repaired;
+        }
+    }
+
+    if (typeof root.querySelectorAll !== "function") {
+        return;
+    }
+
+    const attributesToRepair = ["placeholder", "title", "aria-label", "alt", "value"];
+    const elements = [root, ...root.querySelectorAll("*")];
+    for (const element of elements) {
+        for (const attribute of attributesToRepair) {
+            if (!element.hasAttribute?.(attribute)) continue;
+
+            const original = element.getAttribute(attribute);
+            const repaired = repairMojibake(original);
+            if (repaired !== original) {
+                element.setAttribute(attribute, repaired);
+            }
+        }
+    }
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -842,11 +964,22 @@ async function api(path, options = {}) {
         body = JSON.stringify(body);
     }
 
-    const res = await fetch(withBaseUrl(path), {
-        method: options.method || "GET",
-        headers,
-        body,
-    });
+    let res;
+    try {
+        res = await fetch(withBaseUrl(path), {
+            method: options.method || "GET",
+            headers,
+            body,
+        });
+    } catch (error) {
+        if (window.location.protocol === "file:") {
+            throw new Error("Frontend открыт как файл. Запустите server.js и откройте приложение через http://localhost:3000.");
+        }
+        if (API_BASE_URL) {
+            throw new Error(`Не удалось связаться с backend (${API_BASE_URL}). Проверьте, что сервер запущен и адрес указан верно.`);
+        }
+        throw new Error("Не удалось связаться с backend. Проверьте, что server.js запущен и страница открыта через адрес сервера.");
+    }
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -1028,7 +1161,7 @@ function getChatPreviewText(chat) {
     }
 
     if (Number(lastMessage.sender.id) === Number(state.me?.id)) {
-        return `Р’С‹: ${label}`;
+        return `Вы: ${label}`;
     }
 
     if (chat?.type === "group") {
@@ -1776,7 +1909,7 @@ function renderMembers() {
         ? historyEntries.map((entry) => `
             <article class="history-item">
                 <div class="history-avatar">
-                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>РІРЏВ±</span>`}
+                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>⏱</span>`}
                 </div>
                 <div class="history-copy">
                     <strong>${escapeHtml(entry.kind === "view" ? "Просмотр" : entry.kind === "sticker" ? "Стикер" : "Событие")}</strong>
@@ -1909,18 +2042,7 @@ async function continueStoredMobileSession() {
 
     setToken(state.resumeSession.token);
     state.me = state.resumeSession.user;
-    clearMobileLockTimer();
-    clearResumeSession();
-    setAuthMode(true);
-    renderProfile();
-    connectSocket();
-    await loadChats();
-    await syncPushSubscription().catch(() => {
-        // ignore
-    });
-    await requestNotificationsFromGesture().catch(() => {
-        // ignore
-    });
+    await finishAuthFlow();
 }
 
 function switchStoredMobileSession() {
@@ -2045,20 +2167,10 @@ async function login(event) {
 
         setToken(data.token);
         state.me = data.user;
-        clearMobileLockTimer();
-        clearResumeSession();
-        setAuthMode(true);
-        renderProfile();
-        connectSocket();
-        await loadChats();
-        await syncPushSubscription().catch(() => {
-            // ignore
+        await finishAuthFlow({
+            successMessage: `Вход выполнен: @${state.me.username}`,
+            partialFailurePrefix: "Вход выполнен",
         });
-        await requestNotificationsFromGesture().catch(() => {
-            // ignore
-        });
-        armNotificationPromptOnInteraction();
-        toast(`Вход выполнен: @${state.me.username}`);
         dom.loginForm.reset();
     } catch (error) {
         toast(error.message);
@@ -2088,20 +2200,10 @@ async function register(event) {
 
         setToken(data.token);
         state.me = data.user;
-        clearMobileLockTimer();
-        clearResumeSession();
-        setAuthMode(true);
-        renderProfile();
-        connectSocket();
-        await loadChats();
-        await syncPushSubscription().catch(() => {
-            // ignore
+        await finishAuthFlow({
+            successMessage: `Аккаунт создан: @${state.me.username}`,
+            partialFailurePrefix: "Аккаунт создан",
         });
-        await requestNotificationsFromGesture().catch(() => {
-            // ignore
-        });
-        armNotificationPromptOnInteraction();
-        toast(`Аккаунт создан: @${state.me.username}`);
         dom.registerForm.reset();
         if (dom.registerPrivacy) {
             dom.registerPrivacy.checked = false;
@@ -3156,7 +3258,7 @@ function syncVoiceNotePlayer(player) {
     const current = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
     const ratio = duration > 0 ? Math.min(current / duration, 1) : 0;
 
-    icon.textContent = audio.paused ? "в–¶" : "вќљвќљ";
+    icon.textContent = audio.paused ? "▶" : "❚❚";
     time.textContent = audio.paused && current <= 0
         ? formatMediaTime(duration)
         : `${formatMediaTime(current)} / ${formatMediaTime(duration)}`;
@@ -4119,6 +4221,121 @@ function stopCall(notify = true) {
     applyComposerPermissions();
 }
 
+function buildSocketIoScriptCandidates() {
+    const candidates = [];
+    const bases = [
+        SOCKET_URL,
+        API_BASE_URL,
+        window.location.origin,
+    ].filter(Boolean);
+
+    for (const base of bases) {
+        const normalizedBase = normalizeBaseUrl(base);
+        const scriptUrl = `${normalizedBase}/socket.io/socket.io.js`;
+        if (!candidates.includes(scriptUrl)) {
+            candidates.push(scriptUrl);
+        }
+    }
+
+    const cdnUrl = "https://cdn.socket.io/4.8.1/socket.io.min.js";
+    if (!candidates.includes(cdnUrl)) {
+        candidates.push(cdnUrl);
+    }
+
+    return candidates;
+}
+
+function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+        const targetUrl = new URL(src, window.location.href).href;
+        const existing = Array.from(document.scripts).find((script) => script.src === targetUrl);
+        if (existing) {
+            if (existing.dataset.loaded === "true" || existing.readyState === "complete") {
+                resolve();
+                return;
+            }
+            existing.addEventListener("load", () => resolve(), { once: true });
+            existing.addEventListener("error", () => reject(new Error(`Failed to load ${targetUrl}`)), { once: true });
+            return;
+        }
+
+        const script = document.createElement("script");
+        script.src = targetUrl;
+        script.async = true;
+        script.crossOrigin = "anonymous";
+        script.addEventListener("load", () => {
+            script.dataset.loaded = "true";
+            resolve();
+        }, { once: true });
+        script.addEventListener("error", () => reject(new Error(`Failed to load ${targetUrl}`)), { once: true });
+        document.head.appendChild(script);
+    });
+}
+
+function ensureSocketIoClient() {
+    if (typeof window.io === "function") {
+        return Promise.resolve(true);
+    }
+
+    if (socketIoLoaderPromise) {
+        return socketIoLoaderPromise;
+    }
+
+    socketIoLoaderPromise = (async () => {
+        for (const src of buildSocketIoScriptCandidates()) {
+            try {
+                await loadScriptOnce(src);
+                if (typeof window.io === "function") {
+                    socketIoWarningShown = false;
+                    return true;
+                }
+            } catch {
+                // try next candidate
+            }
+        }
+        return false;
+    })().finally(() => {
+        socketIoLoaderPromise = null;
+    });
+
+    return socketIoLoaderPromise;
+}
+
+async function finishAuthFlow({ successMessage = "", partialFailurePrefix = "Авторизация выполнена" } = {}) {
+    clearMobileLockTimer();
+    clearResumeSession();
+    setAuthMode(true);
+    renderProfile();
+    renderChats();
+    renderCurrentChat();
+
+    connectSocket();
+
+    let loadChatsError = null;
+    try {
+        await loadChats();
+    } catch (error) {
+        loadChatsError = error;
+        console.error("[auth] unable to load chats after successful auth", error);
+    }
+
+    await syncPushSubscription().catch(() => {
+        // ignore
+    });
+    await requestNotificationsFromGesture().catch(() => {
+        // ignore
+    });
+    armNotificationPromptOnInteraction();
+
+    if (successMessage) {
+        toast(successMessage);
+    }
+
+    if (loadChatsError) {
+        toast(`${partialFailurePrefix}. Не удалось загрузить чаты: ${loadChatsError.message || "ошибка сети"}`);
+    }
+}
+
 function connectSocket() {
     if (!state.me || !getToken()) return;
 
@@ -4127,14 +4344,35 @@ function connectSocket() {
         state.socket = null;
     }
 
+    if (typeof window.io !== "function") {
+        ensureSocketIoClient().then((loaded) => {
+            if (!loaded && !socketIoWarningShown) {
+                socketIoWarningShown = true;
+                toast("Realtime временно недоступен. Регистрация и чаты продолжат работать без онлайн-статусов и звонков.");
+                return;
+            }
+            if (loaded && state.me && getToken() && !state.socket) {
+                connectSocket();
+            }
+        }).catch(() => {
+            if (!socketIoWarningShown) {
+                socketIoWarningShown = true;
+                toast("Realtime временно недоступен. Регистрация и чаты продолжат работать без онлайн-статусов и звонков.");
+            }
+        });
+        return;
+    }
+
+    const ioFactory = window.io;
+
     const socket = SOCKET_URL
-        ? io(SOCKET_URL, {
+        ? ioFactory(SOCKET_URL, {
             auth: {
                 token: getToken(),
                 visible: document.visibilityState !== "hidden",
             },
         })
-        : io({
+        : ioFactory({
             auth: {
                 token: getToken(),
                 visible: document.visibilityState !== "hidden",
@@ -4912,5 +5150,3 @@ async function init() {
 }
 
 init();
-
-
