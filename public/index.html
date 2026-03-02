@@ -6,12 +6,12 @@
     <meta name="theme-color" content="#07121d" />
     <title>MIRX</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/css/app.css?v=20260302c" />
+    <link rel="stylesheet" href="/css/app.css?v=20260302d" />
 </head>
 <body>
     <div id="toasts" class="toasts"></div>
 
-        <section id="authScreen" class="screen auth-screen">
+        <section id="authScreen" class="screen auth-screen" data-auth-tab="login">
         <div class="auth-scene-frame auth-scene-frame-ambient">
             <canvas id="authSceneCanvas" class="auth-scene-canvas" aria-hidden="true"></canvas>
             <div class="auth-scene-grid" aria-hidden="true"></div>
@@ -26,6 +26,28 @@
                         <p>Вход по нику и паролю</p>
                     </div>
                 </div>
+
+                <section class="auth-mobile-hero">
+                    <div class="auth-mobile-hero-copy">
+                        <span class="auth-mobile-kicker">mobile first</span>
+                        <h2>&#1041;&#1099;&#1089;&#1090;&#1088;&#1099;&#1081; &#1074;&#1093;&#1086;&#1076; &#1074; MIRX</h2>
+                        <p>&#1051;&#1080;&#1095;&#1085;&#1099;&#1077; &#1095;&#1072;&#1090;&#1099;, &#1075;&#1088;&#1091;&#1087;&#1087;&#1099;, &#1079;&#1074;&#1086;&#1085;&#1082;&#1080; &#1080; &#1087;&#1086;&#1080;&#1089;&#1082; &#1074; &#1080;&#1085;&#1090;&#1077;&#1088;&#1092;&#1077;&#1081;&#1089;&#1077;, &#1082;&#1086;&#1090;&#1086;&#1088;&#1099;&#1081; &#1085;&#1086;&#1088;&#1084;&#1072;&#1083;&#1100;&#1085;&#1086; &#1078;&#1080;&#1074;&#1077;&#1090; &#1085;&#1072; &#1090;&#1077;&#1083;&#1077;&#1092;&#1086;&#1085;&#1077;.</p>
+                    </div>
+                    <div class="auth-mobile-hero-grid">
+                        <article>
+                            <strong>@username</strong>
+                            <span>&#1074;&#1093;&#1086;&#1076; &#1073;&#1077;&#1079; &#1085;&#1086;&#1084;&#1077;&#1088;&#1072; &#1090;&#1077;&#1083;&#1077;&#1092;&#1086;&#1085;&#1072;</span>
+                        </article>
+                        <article>
+                            <strong>1 tap</strong>
+                            <span>&#1073;&#1077;&#1079;&#1086;&#1087;&#1072;&#1089;&#1085;&#1086;&#1077; &#1087;&#1088;&#1086;&#1076;&#1086;&#1083;&#1078;&#1077;&#1085;&#1080;&#1077; &#1089;&#1077;&#1089;&#1089;&#1080;&#1080;</span>
+                        </article>
+                        <article>
+                            <strong>audio/video</strong>
+                            <span>&#1079;&#1074;&#1086;&#1085;&#1082;&#1080; &#1087;&#1088;&#1103;&#1084;&#1086; &#1080;&#1079; &#1095;&#1072;&#1090;&#1086;&#1074;</span>
+                        </article>
+                    </div>
+                </section>
 
                 <section id="resumeSessionCard" class="resume-session hidden">
                     <div class="resume-session-copy">
@@ -79,6 +101,12 @@
                     <button id="privacyPolicyBtn" class="policy-link" type="button">Открыть политику конфиденциальности</button>
                     <button type="submit" class="btn primary auth-submit">Создать аккаунт</button>
                 </form>
+
+                <div class="auth-card-foot auth-mobile-foot">
+                    <span class="auth-card-chip">&#1051;&#1080;&#1095;&#1085;&#1099;&#1077; &#1095;&#1072;&#1090;&#1099;</span>
+                    <span class="auth-card-chip">&#1043;&#1088;&#1091;&#1087;&#1087;&#1099;</span>
+                    <span class="auth-card-chip">&#1047;&#1074;&#1086;&#1085;&#1082;&#1080;</span>
+                </div>
             </div>
         </div>
     </section>
@@ -303,11 +331,11 @@
         </div>
     </div>
 
-    <script src="/config.js?v=20260302c"></script>
+    <script src="/config.js?v=20260302d"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
-    <script src="/js/auth-scene.js?v=20260302c"></script>
-    <script src="/js/app-scene.js?v=20260302c"></script>
+    <script src="/js/auth-scene.js?v=20260302d"></script>
+    <script src="/js/app-scene.js?v=20260302d"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/app.js?v=20260302c"></script>
+    <script src="/js/app.js?v=20260302d"></script>
 </body>
 </html>

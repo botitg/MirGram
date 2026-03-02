@@ -651,6 +651,32 @@ function syncMobileLayoutState() {
     document.body.classList.toggle("composer-focused", chatActive && state.composerFocus);
 }
 
+function syncFloatingUiState() {
+    const chatsOpen = dom.chatsPanel?.classList.contains("open");
+    const searchOpen = dom.searchPanel && !dom.searchPanel.classList.contains("hidden");
+    const emojiOpen = dom.emojiPanel && !dom.emojiPanel.classList.contains("hidden");
+    const profileOpen = dom.profileSheet && !dom.profileSheet.classList.contains("hidden");
+    const modalOpen = dom.modal && !dom.modal.classList.contains("hidden");
+    const callOpen = dom.callOverlay && !dom.callOverlay.classList.contains("hidden");
+
+    document.body.classList.toggle("chats-open", Boolean(chatsOpen));
+    document.body.classList.toggle("search-open", Boolean(searchOpen));
+    document.body.classList.toggle("emoji-open", Boolean(emojiOpen));
+    document.body.classList.toggle("profile-open", Boolean(profileOpen));
+    document.body.classList.toggle("modal-open", Boolean(modalOpen));
+    document.body.classList.toggle("call-open", Boolean(callOpen));
+    document.body.classList.toggle(
+        "surface-open",
+        Boolean(chatsOpen || searchOpen || emojiOpen || profileOpen || modalOpen || callOpen)
+    );
+}
+
+function hideEmojiPanel() {
+    if (dom.emojiPanel?.classList.contains("hidden")) return;
+    dom.emojiPanel.classList.add("hidden");
+    syncFloatingUiState();
+}
+
 function keepComposerVisible() {
     if (!isMobileViewport() || !state.composerFocus || !hasCurrentChatSelection()) {
         return;
@@ -686,9 +712,15 @@ function setChatsDrawer(open) {
         "drawer-open",
         shouldOpen || !dom.profileSheet.classList.contains("hidden") || !dom.callOverlay.classList.contains("hidden")
     );
+    syncFloatingUiState();
 }
 
 function toggleChatsDrawer() {
+    if (!dom.chatsPanel.classList.contains("open")) {
+        clearSearchResults();
+        hideEmojiPanel();
+        closeProfileSheet();
+    }
     setChatsDrawer(!dom.chatsPanel.classList.contains("open"));
 }
 
@@ -1066,10 +1098,14 @@ function setAuthMode(isAuth) {
     dom.authScreen.classList.toggle("hidden", isAuth);
     dom.appScreen.classList.toggle("hidden", !isAuth);
     if (!isAuth) {
+        clearSearchResults();
+        hideEmojiPanel();
         setChatsDrawer(false);
         closeProfileSheet();
+        closeCallOverlay();
     }
     syncMobileLayoutState();
+    syncFloatingUiState();
     scheduleViewportMetrics();
 }
 
@@ -1098,6 +1134,9 @@ function switchTab(tab) {
     dom.tabs.forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
     dom.loginForm.classList.toggle("active", tab === "login");
     dom.registerForm.classList.toggle("active", tab === "register");
+    if (dom.authScreen) {
+        dom.authScreen.dataset.authTab = tab === "register" ? "register" : "login";
+    }
 }
 
 function closeModal(cancelled = true) {
@@ -1111,9 +1150,14 @@ function closeModal(cancelled = true) {
     modalState.rejecter = null;
     modalState.fields = [];
     dom.modalForm.reset();
+    syncFloatingUiState();
 }
 
 function openModal({ title, submitLabel, fields }) {
+    clearSearchResults();
+    hideEmojiPanel();
+    setChatsDrawer(false);
+    closeProfileSheet();
     dom.modalTitle.textContent = title || "Информация";
     dom.modalSubmit.textContent = submitLabel || "Сохранить";
     modalState.fields = fields || [];
@@ -1157,6 +1201,7 @@ function openModal({ title, submitLabel, fields }) {
     }).join(""));
 
     dom.modal.classList.remove("hidden");
+    syncFloatingUiState();
     repairTextTree(dom.modal);
 
     return new Promise((resolve, reject) => {
@@ -1166,11 +1211,16 @@ function openModal({ title, submitLabel, fields }) {
 }
 
 function openInfoModal({ title, html }) {
+    clearSearchResults();
+    hideEmojiPanel();
+    setChatsDrawer(false);
+    closeProfileSheet();
     dom.modalTitle.textContent = title || "Информация";
     setInnerHtmlAndRepair(dom.modalFields, html || "");
     dom.modal.classList.add("info-mode");
     dom.modalSubmit.classList.add("hidden");
     dom.modal.classList.remove("hidden");
+    syncFloatingUiState();
     repairTextTree(dom.modal);
 }
 
@@ -1289,10 +1339,14 @@ function fillProfileEditor() {
 
 function openProfileSheet() {
     if (!state.me) return;
+    clearSearchResults();
+    hideEmojiPanel();
+    setChatsDrawer(false);
     fillProfileEditor();
     dom.profileSheet.classList.remove("hidden");
     dom.profileSheet.setAttribute("aria-hidden", "false");
     document.body.classList.add("drawer-open");
+    syncFloatingUiState();
 }
 
 function closeProfileSheet() {
@@ -1306,6 +1360,7 @@ function closeProfileSheet() {
     if (!dom.chatsPanel.classList.contains("open")) {
         document.body.classList.remove("drawer-open");
     }
+    syncFloatingUiState();
 }
 
 function renderProfile() {
@@ -1399,6 +1454,7 @@ function clearSearchResults() {
     if (dom.searchPanel) {
         dom.searchPanel.innerHTML = "";
     }
+    syncFloatingUiState();
 }
 
 function renderSearchPanel() {
@@ -1482,6 +1538,7 @@ function renderSearchPanel() {
         </div>
     `);
     dom.searchPanel.classList.remove("hidden");
+    syncFloatingUiState();
 }
 
 async function openDirectChatFromSearch(userId) {
@@ -3544,8 +3601,11 @@ function getCallChatName(chatId) {
 }
 
 function openCallOverlay() {
+    clearSearchResults();
+    hideEmojiPanel();
     dom.callOverlay.classList.remove("hidden");
     document.body.classList.add("drawer-open");
+    syncFloatingUiState();
 }
 
 function closeCallOverlay() {
@@ -3553,6 +3613,7 @@ function closeCallOverlay() {
     if (!dom.chatsPanel.classList.contains("open") && dom.profileSheet.classList.contains("hidden")) {
         document.body.classList.remove("drawer-open");
     }
+    syncFloatingUiState();
 }
 
 function getLocalAudioTrack() {
@@ -4795,6 +4856,11 @@ function bindUi() {
     });
 
     dom.chatSearch.addEventListener("focus", () => {
+        if (isMobileViewport()) {
+            hideEmojiPanel();
+            setChatsDrawer(false);
+            closeProfileSheet();
+        }
         if (state.searchQuery.trim()) {
             renderSearchPanel();
         }
@@ -4968,8 +5034,14 @@ function bindUi() {
     dom.emojiBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         const willOpen = dom.emojiPanel.classList.contains("hidden");
+        if (willOpen) {
+            clearSearchResults();
+            setChatsDrawer(false);
+            closeProfileSheet();
+        }
         renderEmojiPanel();
         dom.emojiPanel.classList.toggle("hidden");
+        syncFloatingUiState();
         if (willOpen) {
             setTimeout(() => {
                 document.getElementById("emojiSearchInput")?.focus();
@@ -4994,7 +5066,7 @@ function bindUi() {
             sendStickerFromPack(stickerButton.dataset.sendStickerId).catch((error) => {
                 toast(error.message || "Не удалось отправить стикер.");
             });
-            dom.emojiPanel.classList.add("hidden");
+            hideEmojiPanel();
             return;
         }
 
@@ -5002,7 +5074,7 @@ function bindUi() {
         if (!button) return;
 
         appendEmojiToComposer(button.dataset.emoji || "");
-        dom.emojiPanel.classList.add("hidden");
+        hideEmojiPanel();
     });
 
     dom.emojiPanel.addEventListener("input", (event) => {
@@ -5016,7 +5088,7 @@ function bindUi() {
     document.addEventListener("click", (event) => {
         if (dom.emojiPanel.classList.contains("hidden")) return;
         if (dom.emojiPanel.contains(event.target) || dom.emojiBtn.contains(event.target)) return;
-        dom.emojiPanel.classList.add("hidden");
+        hideEmojiPanel();
     });
 
     document.addEventListener("click", (event) => {
@@ -5083,7 +5155,7 @@ function bindUi() {
         if (!isMobileViewport()) return;
         state.composerFocus = true;
         clearSearchResults();
-        dom.emojiPanel?.classList.add("hidden");
+        hideEmojiPanel();
         requestNotificationsFromGesture().catch(() => {
             // ignore
         });
@@ -5136,7 +5208,7 @@ function bindUi() {
         }
 
         if (!dom.emojiPanel.classList.contains("hidden")) {
-            dom.emojiPanel.classList.add("hidden");
+            hideEmojiPanel();
         }
 
         if (dom.searchPanel && !dom.searchPanel.classList.contains("hidden")) {
@@ -5182,6 +5254,7 @@ async function init() {
     bindUi();
     repairTextTree(document.body);
     setChatsDrawer(false);
+    syncFloatingUiState();
     scheduleViewportMetrics();
     renderChats();
     renderCurrentChat();
