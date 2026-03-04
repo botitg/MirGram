@@ -647,7 +647,9 @@ function hasCurrentChatSelection() {
 function syncMobileLayoutState() {
     const mobile = isMobileViewport();
     const chatActive = mobile && hasCurrentChatSelection();
+    const chatListActive = mobile && Boolean(state.me) && !chatActive;
     document.body.classList.toggle("mobile-chat-active", chatActive);
+    document.body.classList.toggle("mobile-chat-list-active", chatListActive);
     document.body.classList.toggle("composer-focused", chatActive && state.composerFocus);
 }
 
@@ -702,7 +704,7 @@ function scheduleViewportMetrics() {
 }
 
 function setChatsDrawer(open) {
-    const shouldOpen = Boolean(open && isMobileViewport() && state.me);
+    const shouldOpen = Boolean(open && isMobileViewport() && state.me && hasCurrentChatSelection());
 
     dom.chatsPanel.classList.toggle("open", shouldOpen);
     dom.mobileChatsToggle.classList.toggle("active", shouldOpen);
@@ -716,6 +718,11 @@ function setChatsDrawer(open) {
 }
 
 function toggleChatsDrawer() {
+    if (!hasCurrentChatSelection()) {
+        setChatsDrawer(false);
+        return;
+    }
+
     if (!dom.chatsPanel.classList.contains("open")) {
         clearSearchResults();
         hideEmojiPanel();
@@ -858,7 +865,10 @@ function updateViewportMetrics() {
     const keyboardOffset = mobile
         ? Math.max(0, state.viewportBaseHeight - viewportHeight - offsetTop)
         : 0;
-    const keyboardOpen = mobile && (keyboardOffset > 72 || (activeComposer && state.viewportBaseHeight - viewportHeight > 40));
+    const keyboardOpen = mobile
+        && activeComposer
+        && hasCurrentChatSelection()
+        && (keyboardOffset > 72 || state.viewportBaseHeight - viewportHeight > 40);
 
     if (!keyboardOpen && !activeComposer) {
         state.viewportBaseHeight = viewportHeight;
@@ -1712,6 +1722,9 @@ function renderChatHeader() {
             : (isPrivateChat ? "Позвонить" : "Начать эфир");
     const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : (isPrivateChat ? "📞" : "🎥");
     const avatarUrl = getChatAvatarUrl(chat, privatePeer);
+    const mobileBackButton = isMobileViewport()
+        ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">&#8592;</button>`
+        : "";
     const statusMarkup = isPrivateChat && privatePeer
         ? `<span class="header-status-pill ${isOnline(privatePeer.id) ? "online" : "offline"}">
                 <span class="status-dot ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>
@@ -1721,6 +1734,7 @@ function renderChatHeader() {
 
     setInnerHtmlAndRepair(dom.chatHeader, `
         <div class="chat-header-main">
+            ${mobileBackButton}
             <div class="chat-header-avatar">
                 <img src="${escapeHtml(avatarUrl)}" alt="avatar" />
                 ${isPrivateChat && privatePeer ? `<span class="chat-avatar-status ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>` : ""}
@@ -1752,6 +1766,7 @@ function renderChatHeader() {
 
         startCall();
     });
+    document.getElementById("mobileChatBackBtn")?.addEventListener("click", closeMobileChatView);
 }
 
 function renderTypingBar() {
@@ -2223,9 +2238,28 @@ async function loadChats() {
     } else {
         renderCurrentChat();
         if (isMobileViewport() && !state.currentChatId) {
-            setChatsDrawer(true);
+            setChatsDrawer(false);
         }
     }
+}
+
+function closeMobileChatView() {
+    if (!isMobileViewport()) return;
+
+    dom.messageInput?.blur();
+    state.currentChatId = null;
+    state.currentChat = null;
+    state.messages = [];
+    state.members = [];
+    state.chatStickers = [];
+    clearReplyTarget();
+    clearSelectedAttachments();
+    renderSelectedImage();
+    clearSearchResults();
+    setChatsDrawer(false);
+    renderChats();
+    renderCurrentChat();
+    scheduleViewportMetrics();
 }
 
 async function openChat(chatId) {
@@ -4853,6 +4887,12 @@ function bindUi() {
 
     dom.chatSearch.addEventListener("input", () => {
         scheduleSearch(dom.chatSearch.value);
+    });
+
+    dom.chatSearch.addEventListener("pointerdown", () => {
+        if (isMobileViewport()) {
+            setChatsDrawer(false);
+        }
     });
 
     dom.chatSearch.addEventListener("focus", () => {

@@ -9,6 +9,7 @@
 
     const THREE = window.THREE;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const compactViewport = window.matchMedia("(max-width: 840px), (pointer: coarse)").matches;
 
     const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -16,7 +17,7 @@
         antialias: true,
         powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, compactViewport ? 1.35 : 1.75));
     if ("outputColorSpace" in renderer && THREE.SRGBColorSpace) {
         renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
@@ -150,9 +151,10 @@
     ];
 
     const slabGeometry = trackGeometry(new THREE.BoxGeometry(0.54, 2.46, 0.18));
+    const slabCount = compactViewport ? 4 : 6;
     const slabs = [];
-    for (let index = 0; index < 6; index += 1) {
-        const angle = (index / 6) * Math.PI * 2;
+    for (let index = 0; index < slabCount; index += 1) {
+        const angle = (index / slabCount) * Math.PI * 2;
         const material = makeGlassMaterial(index % 2 === 0 ? 0x6fd2ff : 0xf0c975, index % 2 === 0 ? 0x16354d : 0x47351b, 0.42);
         const slab = new THREE.Mesh(slabGeometry, material);
         slab.position.set(Math.cos(angle) * 4.6, (index % 2 === 0 ? -1 : 1) * 0.9, Math.sin(angle) * 1.8 - 2.6);
@@ -168,8 +170,9 @@
     }
 
     const shardGeometry = trackGeometry(new THREE.OctahedronGeometry(0.26, 0));
+    const shardCount = compactViewport ? 12 : 18;
     const shards = [];
-    for (let index = 0; index < 18; index += 1) {
+    for (let index = 0; index < shardCount; index += 1) {
         const mesh = new THREE.Mesh(
             shardGeometry,
             trackMaterial(new THREE.MeshStandardMaterial({
@@ -201,8 +204,9 @@
 
     const satelliteGroup = new THREE.Group();
     cluster.add(satelliteGroup);
+    const satelliteCount = compactViewport ? 3 : 4;
     const satellites = [];
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < satelliteCount; index += 1) {
         const satellite = new THREE.Mesh(
             trackGeometry(new THREE.SphereGeometry(0.18 + index * 0.03, 20, 20)),
             trackMaterial(new THREE.MeshBasicMaterial({
@@ -212,7 +216,7 @@
             }))
         );
         satellite.userData = {
-            angle: (index / 4) * Math.PI * 2,
+            angle: (index / satelliteCount) * Math.PI * 2,
             radius: 2.3 + index * 0.42,
             offset: index * 0.7,
         };
@@ -220,7 +224,7 @@
         satelliteGroup.add(satellite);
     }
 
-    const pointsCount = 1800;
+    const pointsCount = compactViewport ? 1100 : 1800;
     const positions = new Float32Array(pointsCount * 3);
     const colors = new Float32Array(pointsCount * 3);
     const colorA = new THREE.Color(0x7fd8ff);

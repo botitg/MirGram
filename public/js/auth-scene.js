@@ -9,6 +9,7 @@
 
     const THREE = window.THREE;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const compactViewport = window.matchMedia("(max-width: 640px), (pointer: coarse)").matches;
 
     const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -16,7 +17,7 @@
         antialias: true,
         powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.85));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, compactViewport ? 1.4 : 1.85));
     if ("outputColorSpace" in renderer && THREE.SRGBColorSpace) {
         renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
@@ -154,8 +155,9 @@
     ];
 
     const shardGeometry = trackGeometry(new THREE.TetrahedronGeometry(0.22, 0));
+    const shardCount = compactViewport ? 14 : 20;
     const shards = [];
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < shardCount; index += 1) {
         const mesh = new THREE.Mesh(
             shardGeometry,
             trackMaterial(new THREE.MeshStandardMaterial({
@@ -186,13 +188,14 @@
     }
 
     const pillarGeometry = trackGeometry(new THREE.BoxGeometry(0.26, 1.9, 0.26));
+    const pillarCount = compactViewport ? 4 : 5;
     const pillars = [];
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < pillarCount; index += 1) {
         const pillar = new THREE.Mesh(
             pillarGeometry,
             makeGlassMaterial(index % 2 === 0 ? 0x70d2ff : 0xf2ca78, index % 2 === 0 ? 0x163e5a : 0x5d4014, 0.38)
         );
-        const angle = (index / 5) * Math.PI * 2;
+        const angle = (index / pillarCount) * Math.PI * 2;
         pillar.position.set(Math.cos(angle) * 4.7, -1.2 + (index % 2) * 0.6, Math.sin(angle) * 1.8 - 1.6);
         pillar.rotation.set(0.16, angle, 0.1);
         pillar.userData = {
@@ -204,7 +207,7 @@
         scene.add(pillar);
     }
 
-    const pointsCount = 1400;
+    const pointsCount = compactViewport ? 900 : 1400;
     const positions = new Float32Array(pointsCount * 3);
     const colors = new Float32Array(pointsCount * 3);
     const cool = new THREE.Color(0x6fd2ff);
