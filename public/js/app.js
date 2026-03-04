@@ -248,6 +248,7 @@ const state = {
     emojiQuery: "",
     emojiCategory: "recent",
     recentEmojis: [],
+    emojiPanelSignature: "",
     mobileLockTimerId: null,
     viewportBaseHeight: 0,
     viewportBaseWidth: 0,
@@ -362,6 +363,8 @@ const dom = {
     chatHeader: document.getElementById("chatHeader"),
     messages: document.getElementById("messages"),
     typingBar: document.getElementById("typingBar"),
+    recordModeDock: document.getElementById("recordModeDock"),
+    recordModeQuickButtons: Array.from(document.querySelectorAll("[data-record-mode-quick]")),
     composer: document.getElementById("composer"),
     messageInput: document.getElementById("messageInput"),
     attachMenuBtn: document.getElementById("attachMenuBtn"),
@@ -747,6 +750,24 @@ function toggleComposerActionPanel(force) {
     }
 
     syncFloatingUiState();
+}
+
+function updateRecordModeDockState() {
+    const showDock = Boolean(
+        dom.recordModeDock
+        && !state.composerFocus
+        && !getComposerDraftText()
+        && !getSelectedAttachment()
+        && !state.recording.kind
+        && !state.recording.startPending
+    );
+
+    dom.recordModeDock?.classList.toggle("hidden", !showDock);
+    for (const button of dom.recordModeQuickButtons || []) {
+        const active = button.dataset.recordModeQuick === state.preferredRecorderKind;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
 }
 
 function keepComposerVisible() {
@@ -3098,6 +3119,7 @@ function updateRecordingButtons() {
 
     dom.attachMenuBtn?.classList.toggle("active", Boolean(dom.composerActionPanel && !dom.composerActionPanel.classList.contains("hidden")));
     updateComposerActionPanelState();
+    updateRecordModeDockState();
 }
 
 function syncRecordingGestureUi() {
@@ -3779,6 +3801,16 @@ function renderEmojiPanel() {
     const currentGroup = availableGroups.find((group) => group.key === state.emojiCategory)
         || availableGroups.find((group) => group.key !== "recent")
         || availableGroups[0];
+    const panelSignature = JSON.stringify({
+        query,
+        category: currentGroup?.key || "",
+        recent: state.recentEmojis.join("|"),
+        stickers: state.chatStickers.map((sticker) => `${sticker.id}:${sticker.name || ""}`).join("|"),
+    });
+    if (state.emojiPanelSignature === panelSignature && dom.emojiPanel.childElementCount) {
+        return;
+    }
+    state.emojiPanelSignature = panelSignature;
     let gridMarkup = "";
 
     if (currentGroup?.key === "stickers") {
@@ -3862,6 +3894,12 @@ function handleComposerActionPanelClick(event) {
         setPreferredRecorderKind(recordModeButton.dataset.recordMode || "audio");
         hideComposerActionPanel();
     }
+}
+
+function handleRecordModeQuickClick(event) {
+    const button = event.target.closest("[data-record-mode-quick]");
+    if (!button) return;
+    setPreferredRecorderKind(button.dataset.recordModeQuick || "audio");
 }
 
 async function deleteMessage(messageId) {
@@ -5500,6 +5538,7 @@ function bindUi() {
     dom.composerActionBtn?.addEventListener("pointermove", handleComposerActionPointerMove);
     dom.composerActionBtn?.addEventListener("pointerup", handleComposerActionPointerUp);
     dom.composerActionBtn?.addEventListener("pointercancel", handleComposerActionPointerCancel);
+    dom.recordModeDock?.addEventListener("click", handleRecordModeQuickClick);
     dom.messages.addEventListener("click", handleVoiceNoteToggle);
     dom.messages.addEventListener("click", handleMessageActionClick);
     for (const eventName of ["loadedmetadata", "timeupdate", "play", "pause", "ended", "waiting", "canplay"]) {

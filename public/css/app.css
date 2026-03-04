@@ -5602,10 +5602,51 @@ body.keyboard-open .messages {
     border: 0;
 }
 
+.record-mode-dock {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px 0;
+}
+
+.record-mode-chip {
+    min-width: 0;
+    border: 1px solid rgba(160, 190, 220, 0.16);
+    border-radius: 999px;
+    min-height: 40px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #d8e7f7;
+    background: #101f31;
+    cursor: pointer;
+    transition:
+        background 0.18s ease,
+        border-color 0.18s ease,
+        color 0.18s ease;
+}
+
+.record-mode-chip.active {
+    border-color: rgba(66, 181, 255, 0.34);
+    background: #17304a;
+    color: #f3f8ff;
+}
+
+.record-mode-chip-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
 .composer {
     grid-template-columns: 44px 44px minmax(0, 1fr) 56px;
     grid-template-areas: "emoji attach input action";
     align-items: center;
+    overflow: visible;
+}
+
+.composer > * {
+    min-width: 0;
 }
 
 #emojiBtn {
@@ -5637,6 +5678,8 @@ body.keyboard-open .messages {
 
 #messageInput {
     grid-area: input;
+    width: 100%;
+    min-width: 0;
 }
 
 .composer-primary-btn {
@@ -5650,6 +5693,10 @@ body.keyboard-open .messages {
     position: relative;
     overflow: hidden;
     touch-action: none;
+    justify-self: end;
+    align-self: center;
+    display: grid;
+    place-items: center;
 }
 
 .composer-primary-btn::before {
@@ -5705,10 +5752,8 @@ body.keyboard-open .messages {
     gap: 10px;
     border-radius: 24px;
     border: 1px solid rgba(160, 190, 220, 0.18);
-    background:
-        radial-gradient(260px 180px at 0 0, rgba(66, 181, 255, 0.14), transparent 72%),
-        linear-gradient(180deg, rgba(14, 25, 40, 0.98), rgba(8, 17, 29, 0.98));
-    box-shadow: 0 22px 50px rgba(1, 8, 16, 0.56);
+    background: #0d1a28;
+    box-shadow: 0 18px 34px rgba(1, 8, 16, 0.34);
     z-index: 26;
 }
 
@@ -5724,9 +5769,7 @@ body.keyboard-open .messages {
     text-align: left;
     color: #eef5ff;
     cursor: pointer;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03)),
-        rgba(8, 18, 29, 0.88);
+    background: #132234;
     transition:
         transform 0.18s ease,
         border-color 0.18s ease,
@@ -5739,9 +5782,7 @@ body.keyboard-open .messages {
 .composer-action-item.active {
     transform: translateY(-1px);
     border-color: rgba(66, 181, 255, 0.34);
-    background:
-        linear-gradient(180deg, rgba(66, 181, 255, 0.12), rgba(255, 255, 255, 0.04)),
-        rgba(10, 22, 36, 0.92);
+    background: #18304a;
     box-shadow: inset 0 0 0 1px rgba(66, 181, 255, 0.14);
 }
 
@@ -5785,6 +5826,36 @@ body.keyboard-open .messages {
     color: rgba(196, 214, 233, 0.72);
     font-size: 12px;
     line-height: 1.45;
+}
+
+.emoji-panel,
+.emoji-panel-head,
+.emoji-tabs {
+    background: #0d1825 !important;
+    backdrop-filter: none !important;
+    box-shadow: none;
+}
+
+.emoji-panel {
+    border-color: rgba(160, 190, 220, 0.16);
+}
+
+.emoji-panel-shell {
+    contain: layout paint;
+}
+
+.emoji-grid {
+    contain: content;
+}
+
+.emoji-tab,
+.emoji-choice {
+    background: #152336;
+}
+
+.emoji-tab.active {
+    background: #1f3651;
+    box-shadow: inset 0 0 0 1px rgba(66, 181, 255, 0.22);
 }
 
 .recording-video-card {
@@ -5892,6 +5963,15 @@ body.keyboard-open .messages {
 }
 
 @media (max-width: 840px) {
+    body.mobile-chat-active .record-mode-dock {
+        padding: 8px 10px 0;
+    }
+
+    body.mobile-chat-active .record-mode-chip {
+        min-height: 38px;
+        padding-inline: 12px;
+    }
+
     body.mobile-chat-active .composer {
         grid-template-columns: 46px 46px minmax(0, 1fr) 56px;
         grid-template-areas: "emoji attach input action";
@@ -5933,6 +6013,14 @@ body.keyboard-open .messages {
         border-radius: 22px;
     }
 
+    body.mobile-chat-active .emoji-panel {
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-height: min(42vh, 320px);
+        padding: 8px;
+    }
+
     body.mobile-chat-active .composer-action-item {
         min-height: 74px;
         padding: 12px;
@@ -5958,6 +6046,16 @@ body.keyboard-open .messages {
 }
 
 @media (max-width: 560px) {
+    body.mobile-chat-active .record-mode-dock {
+        gap: 6px;
+    }
+
+    body.mobile-chat-active .record-mode-chip {
+        flex: 1 1 0;
+        min-height: 36px;
+        padding-inline: 10px;
+    }
+
     body.mobile-chat-active .composer {
         grid-template-columns: 44px 44px minmax(0, 1fr) 52px;
         gap: 7px;
@@ -5985,6 +6083,10 @@ body.keyboard-open .messages {
 }
 
 @media (max-width: 840px) {
+    body.keyboard-compact.mobile-chat-active .record-mode-dock {
+        display: none;
+    }
+
     body.keyboard-compact.mobile-chat-active .composer {
         grid-template-columns: 40px 40px minmax(0, 1fr) 50px;
         grid-template-areas: "emoji attach input action";

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07121d" />
     <title>MIRX</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/css/app.css?v=20260304d" />
+    <link rel="stylesheet" href="/css/app.css?v=20260304e" />
 </head>
 <body>
     <div id="toasts" class="toasts"></div>
@@ -170,6 +170,16 @@
                     <div id="chatHeader" class="chat-header"></div>
                     <div id="typingBar" class="typing-bar"></div>
                     <div id="messages" class="messages"></div>
+                    <div id="recordModeDock" class="record-mode-dock">
+                        <button type="button" class="record-mode-chip" data-record-mode-quick="audio" aria-pressed="true">
+                            <span class="record-mode-chip-icon" aria-hidden="true">&#127897;</span>
+                            <span>Голос</span>
+                        </button>
+                        <button type="button" class="record-mode-chip" data-record-mode-quick="video" aria-pressed="false">
+                            <span class="record-mode-chip-icon" aria-hidden="true">&#128249;</span>
+                            <span>Видео</span>
+                        </button>
+                    </div>
 
                     <form id="composer" class="composer">
                         <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
@@ -189,20 +199,6 @@
                                 <span class="composer-action-item-copy">
                                     <strong>Стикер</strong>
                                     <small>Новый файл или пак</small>
-                                </span>
-                            </button>
-                            <button type="button" class="composer-action-item" data-record-mode="audio" role="menuitemradio" aria-checked="true">
-                                <span class="composer-action-item-icon" aria-hidden="true">&#127897;</span>
-                                <span class="composer-action-item-copy">
-                                    <strong>Голос</strong>
-                                    <small>Удерживайте кнопку справа</small>
-                                </span>
-                            </button>
-                            <button type="button" class="composer-action-item" data-record-mode="video" role="menuitemradio" aria-checked="false">
-                                <span class="composer-action-item-icon" aria-hidden="true">&#128249;</span>
-                                <span class="composer-action-item-copy">
-                                    <strong>Видео</strong>
-                                    <small>Круглое видеосообщение</small>
                                 </span>
                             </button>
                         </div>
@@ -352,11 +348,11 @@
         </div>
     </div>
 
-    <script src="/config.js?v=20260304d"></script>
+    <script src="/config.js?v=20260304e"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
-    <script src="/js/auth-scene.js?v=20260304d"></script>
-    <script src="/js/app-scene.js?v=20260304d"></script>
+    <script src="/js/auth-scene.js?v=20260304e"></script>
+    <script src="/js/app-scene.js?v=20260304e"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/app.js?v=20260304d"></script>
+    <script src="/js/app.js?v=20260304e"></script>
 </body>
 </html>
