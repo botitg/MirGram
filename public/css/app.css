@@ -16,6 +16,7 @@
     --shadow: 0 18px 44px rgba(1, 7, 14, 0.55);
     --app-height: 100dvh;
     --keyboard-offset: 0px;
+    --keyboard-overlay-offset: 0px;
 }
 
 * {
@@ -5239,5 +5240,352 @@ body.keyboard-open .messages {
     body.mobile-chat-active.keyboard-open .messages {
         padding-bottom: 6px;
         scroll-padding-bottom: calc(104px + max(0px, var(--keyboard-offset)));
+    }
+}
+
+@media (max-width: 840px) {
+    body.mobile-chat-list-active .chat-history-head {
+        gap: 12px;
+        padding: 10px 12px 14px;
+        margin-bottom: 2px;
+        background:
+            linear-gradient(180deg, rgba(17, 30, 47, 0.98), rgba(17, 30, 47, 0.94)),
+            radial-gradient(220px 120px at 0 0, rgba(66, 181, 255, 0.12), transparent 72%);
+        border-bottom: 0;
+    }
+
+    body.mobile-chat-list-active .chat-history-subtitle {
+        margin: 0;
+        color: rgba(206, 223, 241, 0.72);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    body.mobile-chat-list-active .chat-history-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    body.mobile-chat-list-active .history-pill-btn {
+        min-height: 46px;
+        padding: 0 12px;
+        border-radius: 16px;
+        font-weight: 700;
+    }
+
+    body.mobile-chat-active .chat-header {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        align-items: start;
+    }
+
+    body.mobile-chat-active .chat-header-main {
+        grid-template-columns: 44px 44px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+    }
+
+    body.mobile-chat-active .header-actions {
+        display: grid;
+        grid-template-columns: repeat(2, 56px);
+        gap: 10px;
+        justify-content: start;
+        align-items: center;
+        width: auto;
+        overflow: visible;
+    }
+
+    body.mobile-chat-active .chat-mobile-tool {
+        position: relative;
+        width: 56px;
+        min-width: 56px;
+        height: 56px;
+        padding: 0;
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
+            rgba(14, 24, 38, 0.94);
+        border-color: rgba(120, 142, 170, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    body.mobile-chat-active .chat-mobile-tool-icon {
+        font-size: 20px;
+        line-height: 1;
+    }
+
+    body.mobile-chat-active .chat-mobile-tool-label {
+        display: none;
+    }
+
+    body.mobile-chat-active .chat-mobile-tool-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #5bc8ff, #3f9ff2);
+        color: #05101b;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    body.mobile-chat-active .msg-actions {
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+
+    body.mobile-chat-active .msg-action-btn {
+        flex: 1 1 0;
+        min-width: 0;
+        text-align: center;
+        white-space: nowrap;
+        padding: 7px 10px;
+    }
+
+    body.mobile-chat-active .composer {
+        grid-template-columns: 48px minmax(0, 1fr) 58px;
+        gap: 10px;
+        padding:
+            10px
+            10px
+            calc(10px + env(safe-area-inset-bottom));
+    }
+
+    body.mobile-chat-active #emojiBtn {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        font-size: 20px;
+    }
+
+    body.mobile-chat-active #messageInput {
+        height: 48px;
+        min-height: 48px;
+        padding-inline: 16px;
+        border-radius: 16px;
+    }
+
+    body.mobile-chat-active .composer-tools {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        overflow: visible;
+        padding-top: 0;
+    }
+
+    body.mobile-chat-active .file-btn,
+    body.mobile-chat-active .record-btn {
+        width: 100%;
+        min-width: 0;
+        height: 48px;
+        padding: 0;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        font-size: 19px;
+    }
+
+    body.mobile-chat-active .composer .btn.primary {
+        width: 58px;
+        min-width: 58px;
+        height: 48px;
+        padding: 0;
+        border-radius: 18px;
+        font-size: 0;
+    }
+
+    body.mobile-chat-active .composer .btn.primary::before {
+        font-size: 19px;
+        line-height: 1;
+    }
+}
+
+@media (max-width: 560px) {
+    body.mobile-chat-active .header-actions {
+        grid-template-columns: repeat(2, 52px);
+        gap: 8px;
+    }
+
+    body.mobile-chat-active .chat-mobile-tool {
+        width: 52px;
+        min-width: 52px;
+        height: 52px;
+        border-radius: 16px;
+    }
+
+    body.mobile-chat-active .composer {
+        grid-template-columns: 46px minmax(0, 1fr) 54px;
+        gap: 8px;
+    }
+
+    body.mobile-chat-active #emojiBtn,
+    body.mobile-chat-active .composer .btn.primary {
+        height: 46px;
+    }
+
+    body.mobile-chat-active .file-btn,
+    body.mobile-chat-active .record-btn {
+        height: 46px;
+        border-radius: 14px;
+    }
+
+    body.mobile-chat-active .composer-tools {
+        gap: 6px;
+    }
+}
+
+#emojiBtn {
+    font-size: 0;
+}
+
+#emojiBtn::before {
+    content: "\1F642";
+    font-size: 20px;
+    line-height: 1;
+}
+
+.composer-tools > :nth-child(1),
+.composer-tools > :nth-child(2) {
+    font-size: 0;
+}
+
+.composer-tools > :nth-child(1)::before {
+    content: "\1F4F7";
+    font-size: 19px;
+    line-height: 1;
+}
+
+.composer-tools > :nth-child(2)::before {
+    content: "\1F9E9";
+    font-size: 19px;
+    line-height: 1;
+}
+
+@media (max-width: 840px) {
+    body.keyboard-compact.mobile-chat-active .chat-header {
+        gap: 8px;
+        padding:
+            calc(6px + env(safe-area-inset-top))
+            10px
+            6px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .chat-header-main {
+        grid-template-columns: 40px 40px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .mobile-chat-back,
+    body.keyboard-compact.mobile-chat-active .chat-header-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .chat-title strong {
+        font-size: 16px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .chat-title small {
+        font-size: 12px;
+        line-height: 1.25;
+    }
+
+    body.keyboard-compact.mobile-chat-active .header-actions,
+    body.keyboard-compact.mobile-chat-active .typing-bar,
+    body.keyboard-compact.mobile-chat-active .composer-tools {
+        display: none;
+    }
+
+    body.keyboard-compact.mobile-chat-active .messages {
+        padding: 8px 10px 6px;
+        scroll-padding-top: 74px;
+        scroll-padding-bottom: calc(86px + max(0px, var(--keyboard-offset)));
+    }
+
+    body.keyboard-compact.mobile-chat-active .selected-image {
+        order: 4;
+        padding: 6px 10px 0;
+        border-top: 0;
+        background: transparent;
+        gap: 6px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer-status-card {
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 16px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer-status-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        font-size: 18px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer-status-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer-status-actions .compact-btn {
+        min-height: 36px;
+        padding-inline: 12px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer {
+        order: 5;
+        grid-template-columns: 42px minmax(0, 1fr) 52px;
+        grid-template-areas: "emoji input send";
+        gap: 8px;
+        padding:
+            8px
+            10px
+            calc(8px + env(safe-area-inset-bottom));
+        background:
+            linear-gradient(180deg, rgba(18, 31, 47, 0.99), rgba(10, 20, 33, 0.99));
+        box-shadow: 0 -10px 22px rgba(1, 7, 14, 0.3);
+    }
+
+    body.keyboard-compact.mobile-chat-active #emojiBtn {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+    }
+
+    body.keyboard-compact.mobile-chat-active #messageInput {
+        height: 42px;
+        min-height: 42px;
+        padding-inline: 14px;
+        border-radius: 14px;
+        font-size: 15px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .composer .btn.primary {
+        width: 52px;
+        min-width: 52px;
+        height: 42px;
+        border-radius: 16px;
+    }
+
+    body.keyboard-compact.mobile-chat-active .emoji-panel {
+        bottom: calc(74px + env(safe-area-inset-bottom));
+        max-height: min(34vh, 260px);
     }
 }

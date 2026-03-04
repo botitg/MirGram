@@ -253,6 +253,8 @@ const state = {
     viewportBaseWidth: 0,
     viewportUpdateRaf: 0,
     composerFocus: false,
+    virtualKeyboardHeight: 0,
+    virtualKeyboardOverlay: false,
     recording: {
         chatId: null,
         kind: null,
@@ -703,6 +705,40 @@ function scheduleViewportMetrics() {
     });
 }
 
+function getVirtualKeyboardApi() {
+    if (typeof navigator === "undefined") {
+        return null;
+    }
+
+    const virtualKeyboard = navigator.virtualKeyboard;
+    return virtualKeyboard && typeof virtualKeyboard === "object" ? virtualKeyboard : null;
+}
+
+function initVirtualKeyboardSupport() {
+    const virtualKeyboard = getVirtualKeyboardApi();
+    if (!virtualKeyboard) {
+        state.virtualKeyboardOverlay = false;
+        state.virtualKeyboardHeight = 0;
+        return;
+    }
+
+    try {
+        virtualKeyboard.overlaysContent = true;
+        state.virtualKeyboardOverlay = Boolean(virtualKeyboard.overlaysContent ?? true);
+    } catch {
+        state.virtualKeyboardOverlay = false;
+    }
+}
+
+function getVirtualKeyboardHeight() {
+    const rect = getVirtualKeyboardApi()?.boundingRect;
+    if (!rect) {
+        return 0;
+    }
+
+    return Math.max(0, Math.round(rect.height || 0));
+}
+
 function setChatsDrawer(open) {
     const shouldOpen = Boolean(open && isMobileViewport() && state.me && hasCurrentChatSelection());
 
@@ -862,22 +898,38 @@ function updateViewportMetrics() {
     state.viewportBaseWidth = viewportWidth;
     state.composerFocus = activeComposer;
 
-    const keyboardOffset = mobile
+    const keyboardResizeOffset = mobile
         ? Math.max(0, state.viewportBaseHeight - viewportHeight - offsetTop)
         : 0;
+    const virtualKeyboardHeight = mobile && activeComposer ? getVirtualKeyboardHeight() : 0;
+    const keyboardOverlayOffset = mobile
+        ? Math.max(0, virtualKeyboardHeight - keyboardResizeOffset)
+        : 0;
+    const keyboardOffset = mobile
+        ? Math.max(keyboardResizeOffset, virtualKeyboardHeight)
+        : 0;
+    const effectiveViewportHeight = Math.max(0, viewportHeight - keyboardOverlayOffset);
     const keyboardOpen = mobile
         && activeComposer
         && hasCurrentChatSelection()
-        && (keyboardOffset > 72 || state.viewportBaseHeight - viewportHeight > 40);
+        && (keyboardOffset > 72 || state.viewportBaseHeight - effectiveViewportHeight > 40);
+
+    state.virtualKeyboardHeight = virtualKeyboardHeight;
 
     if (!keyboardOpen && !activeComposer) {
         state.viewportBaseHeight = viewportHeight;
     }
 
-    document.documentElement.style.setProperty("--app-height", `${viewportHeight}px`);
+    document.documentElement.style.setProperty("--app-height", `${effectiveViewportHeight}px`);
     document.documentElement.style.setProperty("--keyboard-offset", `${keyboardOffset}px`);
+    document.documentElement.style.setProperty("--keyboard-overlay-offset", `${keyboardOverlayOffset}px`);
     document.documentElement.style.setProperty("--viewport-offset-top", `${offsetTop}px`);
     document.body.classList.toggle("keyboard-open", keyboardOpen);
+    document.body.classList.toggle("keyboard-compact", keyboardOpen && mobile && hasCurrentChatSelection());
+    document.body.classList.toggle(
+        "keyboard-overlay-active",
+        keyboardOverlayOffset > 0 && activeComposer && hasCurrentChatSelection()
+    );
     syncMobileLayoutState();
 
     if (keyboardOpen) {
@@ -1722,6 +1774,27 @@ function renderChatHeader() {
             : (isPrivateChat ? "Позвонить" : "Начать эфир");
     const actionIcon = inCurrentCall ? "📡" : callStatus?.active ? "🎧" : (isPrivateChat ? "📞" : "🎥");
     const avatarUrl = getChatAvatarUrl(chat, privatePeer);
+    const historyCount = buildHistoryEntries().length;
+    const historyButtonMarkup = isMobileViewport()
+        ? `
+            <button
+                id="chatHistoryBtn"
+                class="btn ghost chat-mobile-tool chat-history-entry-btn"
+                type="button"
+                aria-label="&#1048;&#1089;&#1090;&#1086;&#1088;&#1080;&#1103; &#1095;&#1072;&#1090;&#1072;"
+                title="&#1048;&#1089;&#1090;&#1086;&#1088;&#1080;&#1103; &#1095;&#1072;&#1090;&#1072;"
+            >
+                <span class="chat-mobile-tool-icon">&#128339;</span>
+                <span class="chat-mobile-tool-label">&#1048;&#1089;&#1090;&#1086;&#1088;&#1080;&#1103;</span>
+                ${historyCount ? `<span class="chat-mobile-tool-badge">${historyCount > 9 ? "9+" : historyCount}</span>` : ""}
+            </button>
+        `
+        : "";
+    const mobileCallGlyph = inCurrentCall
+        ? "&#128246;"
+        : callStatus?.active
+            ? "&#127911;"
+            : (isPrivateChat ? "&#128222;" : "&#127909;");
     const mobileBackButton = isMobileViewport()
         ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">&#8592;</button>`
         : "";
@@ -1745,10 +1818,26 @@ function renderChatHeader() {
             </div>
         </div>
         <div class="header-actions">
-            ${statusMarkup}
-            <button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
-                <span>${actionIcon}</span><span>${actionLabel}</span>
-            </button>
+            ${isMobileViewport() ? historyButtonMarkup : statusMarkup}
+            ${isMobileViewport()
+                ? `
+                    <button
+                        id="chatCallBtn"
+                        class="btn ghost call-entry-btn chat-mobile-tool"
+                        type="button"
+                        ${!canUseCallAction ? "disabled" : ""}
+                        aria-label="${escapeHtml(actionLabel)}"
+                        title="${escapeHtml(actionLabel)}"
+                    >
+                        <span class="chat-mobile-tool-icon">${mobileCallGlyph}</span>
+                        <span class="chat-mobile-tool-label">${escapeHtml(actionLabel)}</span>
+                    </button>
+                `
+                : `
+                    <button id="chatCallBtn" class="btn ghost call-entry-btn" type="button" ${!canUseCallAction ? "disabled" : ""}>
+                        <span>${actionIcon}</span><span>${actionLabel}</span>
+                    </button>
+                `}
         </div>
     `);
 
@@ -1767,6 +1856,7 @@ function renderChatHeader() {
         startCall();
     });
     document.getElementById("mobileChatBackBtn")?.addEventListener("click", closeMobileChatView);
+    document.getElementById("chatHistoryBtn")?.addEventListener("click", openChatHistoryModal);
 }
 
 function renderTypingBar() {
@@ -1881,6 +1971,33 @@ function buildHistoryEntries() {
     return entries
         .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))
         .slice(0, 24);
+}
+
+function openChatHistoryModal() {
+    const historyEntries = buildHistoryEntries();
+    const historyHtml = historyEntries.length
+        ? `
+            <div class="history-list">
+                ${historyEntries.map((entry) => `
+                    <article class="history-item">
+                        <div class="history-avatar">
+                            ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>&#9201;</span>`}
+                        </div>
+                        <div class="history-copy">
+                            <strong>${escapeHtml(entry.kind === "view" ? "\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440" : entry.kind === "sticker" ? "\u0421\u0442\u0438\u043a\u0435\u0440" : "\u0421\u043e\u0431\u044b\u0442\u0438\u0435")}</strong>
+                            <span>${escapeHtml(entry.text)}</span>
+                        </div>
+                        <time>${escapeHtml(formatDateTime(entry.createdAt))}</time>
+                    </article>
+                `).join("")}
+            </div>
+        `
+        : `<p class="hint">\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043f\u043e\u043a\u0430 \u043f\u0443\u0441\u0442\u0430.</p>`;
+
+    openInfoModal({
+        title: "\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0447\u0430\u0442\u0430",
+        html: historyHtml,
+    });
 }
 
 async function markCurrentChatViewed(force = false) {
@@ -2869,10 +2986,10 @@ function updateRecordingButtons() {
     dom.recordVoiceBtn?.classList.toggle("busy", state.recording.isSending);
     dom.recordVideoBtn?.classList.toggle("busy", state.recording.isSending);
     if (dom.recordVoiceBtn) {
-        dom.recordVoiceBtn.textContent = isVoiceRecording ? "⏹" : "🎙";
+        dom.recordVoiceBtn.textContent = isVoiceRecording ? "\u23F9" : "\u{1F399}";
     }
     if (dom.recordVideoBtn) {
-        dom.recordVideoBtn.textContent = isVideoRecording ? "⏹" : "🎬";
+        dom.recordVideoBtn.textContent = isVideoRecording ? "\u23F9" : "\u{1F3AC}";
     }
 }
 
@@ -5190,6 +5307,7 @@ function bindUi() {
     dom.toggleCameraBtn?.addEventListener("click", toggleCamera);
     dom.leaveCallBtn.addEventListener("click", () => stopCall(true));
     attachTyping();
+    initVirtualKeyboardSupport();
 
     const onMobileComposerFocus = () => {
         if (!isMobileViewport()) return;
@@ -5218,6 +5336,7 @@ function bindUi() {
     });
     window.visualViewport?.addEventListener("resize", scheduleViewportMetrics);
     window.visualViewport?.addEventListener("scroll", scheduleViewportMetrics);
+    navigator.virtualKeyboard?.addEventListener?.("geometrychange", scheduleViewportMetrics);
     document.addEventListener("visibilitychange", () => {
         if (state.socket) {
             state.socket.emit("presence:visible", {
