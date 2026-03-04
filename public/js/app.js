@@ -253,6 +253,7 @@ const state = {
     viewportBaseWidth: 0,
     viewportUpdateRaf: 0,
     composerFocus: false,
+    preferredRecorderKind: "audio",
     virtualKeyboardHeight: 0,
     virtualKeyboardOverlay: false,
     recording: {
@@ -268,6 +269,14 @@ const state = {
         mimeType: "",
         shouldSendAfterStop: false,
         cancelled: false,
+        pendingKind: "",
+        locked: false,
+        startPending: false,
+        pendingStopAction: "",
+        gesturePointerId: null,
+        gestureStartX: 0,
+        gestureStartY: 0,
+        ignoreClickUntil: 0,
     },
 };
 
@@ -355,10 +364,11 @@ const dom = {
     typingBar: document.getElementById("typingBar"),
     composer: document.getElementById("composer"),
     messageInput: document.getElementById("messageInput"),
+    attachMenuBtn: document.getElementById("attachMenuBtn"),
+    composerActionPanel: document.getElementById("composerActionPanel"),
+    composerActionBtn: document.getElementById("composerActionBtn"),
     imageInput: document.getElementById("imageInput"),
     stickerInput: document.getElementById("stickerInput"),
-    recordVoiceBtn: document.getElementById("recordVoiceBtn"),
-    recordVideoBtn: document.getElementById("recordVideoBtn"),
     selectedImageBar: document.getElementById("selectedImageBar"),
     emojiBtn: document.getElementById("emojiBtn"),
     emojiPanel: document.getElementById("emojiPanel"),
@@ -659,6 +669,7 @@ function syncFloatingUiState() {
     const chatsOpen = dom.chatsPanel?.classList.contains("open");
     const searchOpen = dom.searchPanel && !dom.searchPanel.classList.contains("hidden");
     const emojiOpen = dom.emojiPanel && !dom.emojiPanel.classList.contains("hidden");
+    const attachOpen = dom.composerActionPanel && !dom.composerActionPanel.classList.contains("hidden");
     const profileOpen = dom.profileSheet && !dom.profileSheet.classList.contains("hidden");
     const modalOpen = dom.modal && !dom.modal.classList.contains("hidden");
     const callOpen = dom.callOverlay && !dom.callOverlay.classList.contains("hidden");
@@ -666,18 +677,75 @@ function syncFloatingUiState() {
     document.body.classList.toggle("chats-open", Boolean(chatsOpen));
     document.body.classList.toggle("search-open", Boolean(searchOpen));
     document.body.classList.toggle("emoji-open", Boolean(emojiOpen));
+    document.body.classList.toggle("attach-open", Boolean(attachOpen));
     document.body.classList.toggle("profile-open", Boolean(profileOpen));
     document.body.classList.toggle("modal-open", Boolean(modalOpen));
     document.body.classList.toggle("call-open", Boolean(callOpen));
     document.body.classList.toggle(
         "surface-open",
-        Boolean(chatsOpen || searchOpen || emojiOpen || profileOpen || modalOpen || callOpen)
+        Boolean(chatsOpen || searchOpen || emojiOpen || attachOpen || profileOpen || modalOpen || callOpen)
     );
 }
 
 function hideEmojiPanel() {
     if (dom.emojiPanel?.classList.contains("hidden")) return;
     dom.emojiPanel.classList.add("hidden");
+    syncFloatingUiState();
+}
+
+function hideComposerActionPanel() {
+    if (dom.composerActionPanel?.classList.contains("hidden")) return;
+    dom.composerActionPanel.classList.add("hidden");
+    dom.attachMenuBtn?.setAttribute("aria-expanded", "false");
+    syncFloatingUiState();
+}
+
+function getComposerDraftText() {
+    return String(dom.messageInput?.value || "").trim();
+}
+
+function getComposerPrimaryMode() {
+    if (state.recording.kind || state.recording.startPending) {
+        return state.recording.kind || state.recording.pendingKind || state.preferredRecorderKind;
+    }
+
+    if (getComposerDraftText() || getSelectedAttachment()) {
+        return "send";
+    }
+
+    return state.preferredRecorderKind === "video" ? "video" : "audio";
+}
+
+function updateComposerActionPanelState() {
+    if (!dom.composerActionPanel) return;
+
+    for (const button of dom.composerActionPanel.querySelectorAll("[data-record-mode]")) {
+        const active = button.dataset.recordMode === state.preferredRecorderKind;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-checked", active ? "true" : "false");
+    }
+}
+
+function toggleComposerActionPanel(force) {
+    if (!dom.composerActionPanel) return;
+
+    const shouldOpen = typeof force === "boolean"
+        ? force
+        : dom.composerActionPanel.classList.contains("hidden");
+
+    if (shouldOpen) {
+        hideEmojiPanel();
+        clearSearchResults();
+        setChatsDrawer(false);
+        closeProfileSheet();
+        updateComposerActionPanelState();
+        dom.composerActionPanel.classList.remove("hidden");
+        dom.attachMenuBtn?.setAttribute("aria-expanded", "true");
+    } else {
+        dom.composerActionPanel.classList.add("hidden");
+        dom.attachMenuBtn?.setAttribute("aria-expanded", "false");
+    }
+
     syncFloatingUiState();
 }
 
@@ -762,6 +830,7 @@ function toggleChatsDrawer() {
     if (!dom.chatsPanel.classList.contains("open")) {
         clearSearchResults();
         hideEmojiPanel();
+        hideComposerActionPanel();
         closeProfileSheet();
     }
     setChatsDrawer(!dom.chatsPanel.classList.contains("open"));
@@ -1275,6 +1344,7 @@ function openModal({ title, submitLabel, fields }) {
 function openInfoModal({ title, html }) {
     clearSearchResults();
     hideEmojiPanel();
+    hideComposerActionPanel();
     setChatsDrawer(false);
     closeProfileSheet();
     dom.modalTitle.textContent = title || "Информация";
@@ -1403,6 +1473,7 @@ function openProfileSheet() {
     if (!state.me) return;
     clearSearchResults();
     hideEmojiPanel();
+    hideComposerActionPanel();
     setChatsDrawer(false);
     fillProfileEditor();
     dom.profileSheet.classList.remove("hidden");
@@ -1903,6 +1974,22 @@ function renderVoiceMessagePlayer(message) {
     `;
 }
 
+function renderVideoMessagePlayer(message) {
+    const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
+    if (!mediaUrl) return "";
+
+    return `
+        <div class="msg-media-card msg-video-card">
+            <div class="msg-video-orb">
+                <video class="msg-video msg-video-note" controls preload="metadata" playsinline src="${escapeHtml(mediaUrl)}"></video>
+                <div class="msg-video-overlay">
+                    <span class="msg-video-pill">video note</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderReplyCard(replyTo) {
     if (!replyTo) return "";
 
@@ -2108,12 +2195,7 @@ function renderMessages() {
             ? renderVoiceMessagePlayer(message)
             : "";
         const video = !isDeleted && message.type === "video" && mediaUrl
-            ? `
-                <div class="msg-media-card msg-video-card">
-                    <div class="msg-voice-head">🎬 Видеосообщение</div>
-                    <video class="msg-video" controls preload="metadata" playsinline src="${escapeHtml(mediaUrl)}"></video>
-                </div>
-            `
+            ? renderVideoMessagePlayer(message)
             : "";
         const text = isDeleted
             ? `<div class="msg-deleted-copy">Сообщение удалено</div>`
@@ -2870,6 +2952,7 @@ function clearSelectedAttachments() {
     if (dom.stickerInput) {
         dom.stickerInput.value = "";
     }
+    updateRecordingButtons();
 }
 
 function setSelectedAttachment(kind, file, meta = {}) {
@@ -2879,6 +2962,7 @@ function setSelectedAttachment(kind, file, meta = {}) {
         return;
     }
 
+    hideComposerActionPanel();
     if (kind === "image") state.selectedImage = file;
     if (kind === "sticker") state.selectedSticker = file;
     if (kind === "audio") state.selectedAudio = file;
@@ -2978,18 +3062,229 @@ function getRecordingOptions(kind) {
 }
 
 function updateRecordingButtons() {
-    const isVoiceRecording = state.recording.kind === "audio";
-    const isVideoRecording = state.recording.kind === "video";
+    const actionBtn = dom.composerActionBtn;
+    const actionMode = getComposerPrimaryMode();
+    const currentRecordKind = state.recording.kind || state.recording.pendingKind || state.preferredRecorderKind;
+    const isLocked = Boolean(state.recording.kind && state.recording.locked);
+    const isRecording = Boolean(state.recording.kind);
+    const isPending = Boolean(state.recording.startPending);
 
-    dom.recordVoiceBtn?.classList.toggle("recording", isVoiceRecording);
-    dom.recordVideoBtn?.classList.toggle("recording", isVideoRecording);
-    dom.recordVoiceBtn?.classList.toggle("busy", state.recording.isSending);
-    dom.recordVideoBtn?.classList.toggle("busy", state.recording.isSending);
-    if (dom.recordVoiceBtn) {
-        dom.recordVoiceBtn.textContent = isVoiceRecording ? "\u23F9" : "\u{1F399}";
+    if (actionBtn) {
+        let buttonMode = actionMode;
+        let buttonType = actionMode === "send" ? "submit" : "button";
+        let label = "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435";
+
+        if (isPending || isRecording) {
+            buttonMode = isLocked ? "locked" : "recording";
+            buttonType = "button";
+            label = isLocked
+                ? "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u043f\u0438\u0441\u044c"
+                : "\u0418\u0434\u0435\u0442 \u0437\u0430\u043f\u0438\u0441\u044c";
+        } else if (actionMode === "audio") {
+            label = "\u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0439\u0442\u0435 \u0434\u043b\u044f \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0433\u043e";
+        } else if (actionMode === "video") {
+            label = "\u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0439\u0442\u0435 \u0434\u043b\u044f \u043a\u0440\u0443\u0433\u043b\u043e\u0433\u043e \u0432\u0438\u0434\u0435\u043e";
+        }
+
+        actionBtn.type = buttonType;
+        actionBtn.dataset.mode = buttonMode;
+        actionBtn.dataset.recordKind = currentRecordKind;
+        actionBtn.setAttribute("aria-label", label);
+        actionBtn.setAttribute("title", label);
+        actionBtn.classList.toggle("busy", state.recording.isSending);
+        actionBtn.classList.toggle("recording", isRecording || isPending);
+        actionBtn.classList.toggle("locked", isLocked);
     }
-    if (dom.recordVideoBtn) {
-        dom.recordVideoBtn.textContent = isVideoRecording ? "\u23F9" : "\u{1F3AC}";
+
+    dom.attachMenuBtn?.classList.toggle("active", Boolean(dom.composerActionPanel && !dom.composerActionPanel.classList.contains("hidden")));
+    updateComposerActionPanelState();
+}
+
+function syncRecordingGestureUi() {
+    const actionBtn = dom.composerActionBtn;
+    const gestureActive = Boolean(state.recording.gesturePointerId);
+    const recordingVisible = Boolean(state.recording.kind || state.recording.startPending);
+
+    actionBtn?.classList.toggle("hold-active", gestureActive);
+    actionBtn?.classList.toggle("recording-armed", recordingVisible);
+    document.body.classList.toggle("recording-gesture", gestureActive || recordingVisible);
+    document.body.classList.toggle("recording-locked", Boolean(state.recording.locked));
+}
+
+function releaseComposerActionPointerCapture(pointerId = state.recording.gesturePointerId) {
+    if (!dom.composerActionBtn || pointerId == null) {
+        return;
+    }
+
+    try {
+        if (dom.composerActionBtn.hasPointerCapture?.(pointerId)) {
+            dom.composerActionBtn.releasePointerCapture(pointerId);
+        }
+    } catch {
+        // ignore capture issues on browsers without full pointer capture support
+    }
+}
+
+function resetRecordingGestureTracking() {
+    releaseComposerActionPointerCapture();
+    state.recording.gesturePointerId = null;
+    state.recording.gestureStartX = 0;
+    state.recording.gestureStartY = 0;
+    syncRecordingGestureUi();
+}
+
+async function beginRecordingGesture(kind, event) {
+    if (!kind || kind === "send") {
+        return;
+    }
+
+    hideComposerActionPanel();
+    hideEmojiPanel();
+    dom.messageInput?.blur();
+
+    state.recording.gesturePointerId = event.pointerId ?? 1;
+    state.recording.gestureStartX = event.clientX ?? 0;
+    state.recording.gestureStartY = event.clientY ?? 0;
+    state.recording.locked = false;
+    state.recording.pendingStopAction = "";
+
+    try {
+        dom.composerActionBtn?.setPointerCapture?.(state.recording.gesturePointerId);
+    } catch {
+        // ignore capture issues
+    }
+
+    syncRecordingGestureUi();
+    await startRecording(kind);
+
+    if (!state.recording.kind && !state.recording.startPending) {
+        resetRecordingGestureTracking();
+    }
+}
+
+function updateRecordingGesturePosition(event) {
+    if (state.recording.gesturePointerId == null || event.pointerId !== state.recording.gesturePointerId) {
+        return;
+    }
+
+    const deltaY = (event.clientY ?? 0) - state.recording.gestureStartY;
+    if (!state.recording.locked && deltaY <= -72) {
+        state.recording.locked = true;
+        syncRecordingGestureUi();
+        renderSelectedImage();
+    }
+}
+
+async function finishRecordingGesture({ cancel = false } = {}) {
+    const hasPendingGesture = state.recording.gesturePointerId != null;
+    if (!hasPendingGesture && !state.recording.kind && !state.recording.startPending) {
+        return;
+    }
+
+    const keepRecording = !cancel && Boolean(state.recording.locked);
+    const stopAction = cancel ? "cancel" : "send";
+    state.recording.ignoreClickUntil = Date.now() + 420;
+    resetRecordingGestureTracking();
+
+    if (cancel) {
+        state.recording.locked = false;
+    }
+
+    if (keepRecording) {
+        renderSelectedImage();
+        return;
+    }
+
+    if (state.recording.kind) {
+        await stopRecording({
+            sendAfterStop: stopAction === "send",
+            cancel: stopAction === "cancel",
+        });
+        return;
+    }
+
+    if (state.recording.startPending) {
+        state.recording.pendingStopAction = stopAction;
+        renderSelectedImage();
+    }
+}
+
+function handleComposerActionPointerDown(event) {
+    if ((event.pointerType === "mouse" || event.pointerType === "pen") && event.button !== 0) {
+        return;
+    }
+
+    if (state.recording.kind || state.recording.startPending) {
+        return;
+    }
+
+    const mode = getComposerPrimaryMode();
+    if (mode === "send") {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    beginRecordingGesture(mode, event).catch(() => {
+        resetRecordingGestureTracking();
+    });
+}
+
+function handleComposerActionPointerMove(event) {
+    if (state.recording.gesturePointerId == null) {
+        return;
+    }
+
+    event.preventDefault();
+    updateRecordingGesturePosition(event);
+}
+
+function handleComposerActionPointerUp(event) {
+    if (state.recording.gesturePointerId == null || event.pointerId !== state.recording.gesturePointerId) {
+        return;
+    }
+
+    event.preventDefault();
+    finishRecordingGesture().catch(() => {
+        // ignore
+    });
+}
+
+function handleComposerActionPointerCancel(event) {
+    if (state.recording.gesturePointerId == null || event.pointerId !== state.recording.gesturePointerId) {
+        return;
+    }
+
+    finishRecordingGesture({ cancel: true }).catch(() => {
+        // ignore
+    });
+}
+
+function handleComposerActionClick(event) {
+    const mode = getComposerPrimaryMode();
+
+    if (Date.now() < Number(state.recording.ignoreClickUntil || 0)) {
+        event.preventDefault();
+        return;
+    }
+
+    if (state.recording.startPending) {
+        event.preventDefault();
+        return;
+    }
+
+    if (state.recording.kind) {
+        event.preventDefault();
+        if (state.recording.locked) {
+            stopRecording({ sendAfterStop: true }).catch(() => {
+                // ignore
+            });
+        }
+        return;
+    }
+
+    if (mode !== "send") {
+        event.preventDefault();
     }
 }
 
@@ -3020,6 +3315,15 @@ function resetRecordingState() {
     state.recording.mimeType = "";
     state.recording.shouldSendAfterStop = false;
     state.recording.cancelled = false;
+    state.recording.pendingKind = "";
+    state.recording.locked = false;
+    state.recording.startPending = false;
+    state.recording.pendingStopAction = "";
+    state.recording.gesturePointerId = null;
+    state.recording.gestureStartX = 0;
+    state.recording.gestureStartY = 0;
+    state.recording.ignoreClickUntil = 0;
+    syncRecordingGestureUi();
     updateRecordingButtons();
     applyComposerPermissions();
 }
@@ -3087,7 +3391,7 @@ async function startRecording(kind) {
         toast("Этот браузер не поддерживает запись голоса и видео.");
         return;
     }
-    if (state.recording.isSending) {
+    if (state.recording.isSending || state.recording.startPending) {
         return;
     }
     if (state.recording.kind) {
@@ -3101,6 +3405,12 @@ async function startRecording(kind) {
 
     try {
         clearSelectedAttachments();
+        renderSelectedImage();
+        state.recording.pendingKind = kind;
+        state.recording.startPending = true;
+        state.recording.pendingStopAction = "";
+        updateRecordingButtons();
+        applyComposerPermissions();
         renderSelectedImage();
 
         const stream = await navigator.mediaDevices.getUserMedia(
@@ -3146,6 +3456,8 @@ async function startRecording(kind) {
         state.recording.mimeType = recordingOptions.mimeType || recorder.mimeType || "";
         state.recording.shouldSendAfterStop = false;
         state.recording.cancelled = false;
+        state.recording.startPending = false;
+        state.recording.pendingKind = kind;
 
         recorder.addEventListener("dataavailable", (event) => {
             if (event.data && event.data.size > 0) {
@@ -3220,6 +3532,15 @@ async function startRecording(kind) {
         updateRecordingButtons();
         applyComposerPermissions();
         renderSelectedImage();
+
+        if (state.recording.pendingStopAction) {
+            const pendingStopAction = state.recording.pendingStopAction;
+            state.recording.pendingStopAction = "";
+            await stopRecording({
+                sendAfterStop: pendingStopAction === "send",
+                cancel: pendingStopAction === "cancel",
+            });
+        }
     } catch (error) {
         resetRecordingState();
         renderSelectedImage();
@@ -3297,22 +3618,62 @@ async function sendMessage(event) {
 }
 
 function renderSelectedImage() {
-    if (state.recording.kind) {
-        const label = state.recording.kind === "video" ? "Видеосообщение" : "Голосовое сообщение";
-        dom.selectedImageBar.classList.remove("hidden");
-        dom.selectedImageBar.innerHTML = `
-            <div class="composer-status-card recording-card">
-                <div class="composer-status-icon">${state.recording.kind === "video" ? "🎬" : "🎙"}</div>
-                <div class="composer-status-copy">
-                    <strong>${label}</strong>
-                    <span>Идёт запись · ${formatDuration(state.recording.durationMs)}</span>
+    updateRecordingButtons();
+
+    const recordingKind = state.recording.kind || state.recording.pendingKind;
+    if (state.recording.startPending || recordingKind) {
+        const label = recordingKind === "video" ? "Видеосообщение" : "Голосовое сообщение";
+        const statusText = state.recording.startPending
+            ? (recordingKind === "video" ? "Открываем камеру..." : "Открываем микрофон...")
+            : state.recording.locked
+                ? `Запись закреплена · ${formatDuration(state.recording.durationMs)}`
+                : `Идёт запись · ${formatDuration(state.recording.durationMs)}`;
+        const hintText = state.recording.startPending
+            ? "Разрешите доступ к устройству, если браузер показывает запрос."
+            : state.recording.locked
+                ? "Нажмите отправить, когда будете готовы закончить запись."
+                : "Отпустите кнопку для отправки или потяните вверх, чтобы закрепить запись.";
+        const preview = recordingKind === "video"
+            ? `
+                <div class="recording-preview-shell ${state.recording.locked ? "locked" : ""}">
+                    <video id="recordingPreviewVideo" class="recording-preview-video" autoplay muted playsinline></video>
+                    <span class="recording-preview-chip">${state.recording.locked ? "LOCK" : "UP"}</span>
                 </div>
+            `
+            : "";
+        const actions = state.recording.startPending
+            ? `
                 <div class="composer-status-actions">
                     <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">Отмена</button>
-                    <button type="button" id="finishRecordingBtn" class="btn primary compact-btn">Отправить</button>
                 </div>
+            `
+            : state.recording.locked
+                ? `
+                    <div class="composer-status-actions">
+                        <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">Отмена</button>
+                        <button type="button" id="finishRecordingBtn" class="btn primary compact-btn">Отправить</button>
+                    </div>
+                `
+                : `
+                    <div class="composer-status-actions">
+                        <button type="button" id="cancelRecordingBtn" class="btn ghost compact-btn">Отмена</button>
+                    </div>
+                `;
+
+        dom.selectedImageBar.classList.remove("hidden");
+        setInnerHtmlAndRepair(dom.selectedImageBar, `
+            <div class="composer-status-card recording-card ${recordingKind === "video" ? "recording-video-card" : ""}">
+                <div class="composer-status-icon">${recordingKind === "video" ? "🎬" : "🎙"}</div>
+                <div class="composer-status-copy">
+                    <strong>${label}</strong>
+                    <span>${statusText}</span>
+                    <small class="composer-recording-hint">${hintText}</small>
+                </div>
+                ${actions}
+                ${preview}
             </div>
-        `;
+        `);
+
         document.getElementById("cancelRecordingBtn")?.addEventListener("click", () => {
             stopRecording({ sendAfterStop: false, cancel: true }).catch(() => {
                 // ignore
@@ -3323,6 +3684,12 @@ function renderSelectedImage() {
                 // ignore
             });
         });
+
+        const previewVideo = document.getElementById("recordingPreviewVideo");
+        if (previewVideo && state.recording.stream) {
+            previewVideo.srcObject = state.recording.stream;
+            safePlayMediaElement(previewVideo);
+        }
         return;
     }
 
@@ -3346,7 +3713,7 @@ function renderSelectedImage() {
         preview = `<audio class="composer-preview-audio" controls preload="metadata" src="${escapeHtml(attachment.previewUrl)}"></audio>`;
     }
     if (attachment?.kind === "video" && attachment.previewUrl) {
-        preview = `<video class="composer-preview-video" controls preload="metadata" playsinline src="${escapeHtml(attachment.previewUrl)}"></video>`;
+        preview = `<video class="composer-preview-video ${attachmentMeta.recorded ? "composer-preview-video-round" : ""}" controls preload="metadata" playsinline src="${escapeHtml(attachment.previewUrl)}"></video>`;
     }
 
     const metaText = attachment && attachmentMeta.recorded
@@ -3383,7 +3750,7 @@ function renderSelectedImage() {
         : "";
 
     dom.selectedImageBar.classList.remove("hidden");
-    dom.selectedImageBar.innerHTML = `${replyCard}${attachmentCard}`;
+    setInnerHtmlAndRepair(dom.selectedImageBar, `${replyCard}${attachmentCard}`);
     document.getElementById("clearReplyBtn")?.addEventListener("click", () => {
         clearReplyTarget();
         renderSelectedImage();
@@ -3463,6 +3830,38 @@ function appendEmojiToComposer(emoji) {
     state.emojiQuery = "";
     renderEmojiPanel();
     dom.messageInput.focus();
+}
+
+function setPreferredRecorderKind(kind) {
+    state.preferredRecorderKind = kind === "video" ? "video" : "audio";
+    updateRecordingButtons();
+    applyComposerPermissions();
+}
+
+function openAttachmentPicker(kind) {
+    if (kind === "image") {
+        dom.imageInput?.click();
+        return;
+    }
+
+    if (kind === "sticker") {
+        dom.stickerInput?.click();
+    }
+}
+
+function handleComposerActionPanelClick(event) {
+    const attachActionButton = event.target.closest("[data-attach-action]");
+    if (attachActionButton) {
+        hideComposerActionPanel();
+        openAttachmentPicker(attachActionButton.dataset.attachAction || "");
+        return;
+    }
+
+    const recordModeButton = event.target.closest("[data-record-mode]");
+    if (recordModeButton) {
+        setPreferredRecorderKind(recordModeButton.dataset.recordMode || "audio");
+        hideComposerActionPanel();
+    }
 }
 
 async function deleteMessage(messageId) {
@@ -3602,24 +4001,32 @@ function applyComposerPermissions() {
                 || state.myRole === "owner"
         )
     );
-    const isRecording = Boolean(state.recording.kind);
+    const isRecording = Boolean(state.recording.kind || state.recording.startPending);
     const recordLocked = Boolean(!canMedia || callState.active || state.recording.isSending);
+    const actionMode = getComposerPrimaryMode();
 
-    const submitBtn = dom.composer.querySelector('button[type="submit"]');
-    const imageButton = dom.imageInput.closest(".file-btn");
-    const stickerButton = dom.stickerInput?.closest(".file-btn");
+    const attachImageBtn = dom.composerActionPanel?.querySelector('[data-attach-action="image"]');
+    const attachStickerBtn = dom.composerActionPanel?.querySelector('[data-attach-action="sticker"]');
+    const recordModeButtons = dom.composerActionPanel?.querySelectorAll("[data-record-mode]") || [];
 
     dom.messageInput.disabled = !canSend || isRecording;
-    dom.emojiBtn.disabled = !canSend;
+    dom.emojiBtn.disabled = !canSend || isRecording;
+    if (dom.attachMenuBtn) dom.attachMenuBtn.disabled = !canMedia || isRecording;
     dom.imageInput.disabled = !canMedia || isRecording;
     if (dom.stickerInput) dom.stickerInput.disabled = !canAddStickers || isRecording;
-    if (submitBtn) submitBtn.disabled = !canSend || isRecording;
-    imageButton?.classList.toggle("disabled", !canMedia || isRecording);
-    stickerButton?.classList.toggle("disabled", !canAddStickers || isRecording);
-    dom.recordVoiceBtn?.classList.toggle("disabled", recordLocked && !isRecording);
-    dom.recordVideoBtn?.classList.toggle("disabled", recordLocked && !isRecording);
-    if (dom.recordVoiceBtn) dom.recordVoiceBtn.disabled = recordLocked && !isRecording;
-    if (dom.recordVideoBtn) dom.recordVideoBtn.disabled = recordLocked && !isRecording;
+    if (dom.composerActionBtn) {
+        dom.composerActionBtn.disabled = actionMode === "send"
+            ? (!canSend || state.recording.isSending)
+            : (recordLocked && !isRecording);
+    }
+    attachImageBtn?.classList.toggle("disabled", !canMedia || isRecording);
+    attachStickerBtn?.classList.toggle("disabled", !canAddStickers || isRecording);
+    if (attachImageBtn) attachImageBtn.disabled = !canMedia || isRecording;
+    if (attachStickerBtn) attachStickerBtn.disabled = !canAddStickers || isRecording;
+    for (const button of recordModeButtons) {
+        button.classList.toggle("disabled", recordLocked && !isRecording);
+        button.disabled = recordLocked && !isRecording;
+    }
 
     dom.messageInput.placeholder = !hasChat
         ? "Выберите чат"
@@ -5015,6 +5422,7 @@ function bindUi() {
     dom.chatSearch.addEventListener("focus", () => {
         if (isMobileViewport()) {
             hideEmojiPanel();
+            hideComposerActionPanel();
             setChatsDrawer(false);
             closeProfileSheet();
         }
@@ -5087,6 +5495,11 @@ function bindUi() {
     });
 
     dom.composer.addEventListener("submit", sendMessage);
+    dom.composerActionBtn?.addEventListener("click", handleComposerActionClick);
+    dom.composerActionBtn?.addEventListener("pointerdown", handleComposerActionPointerDown);
+    dom.composerActionBtn?.addEventListener("pointermove", handleComposerActionPointerMove);
+    dom.composerActionBtn?.addEventListener("pointerup", handleComposerActionPointerUp);
+    dom.composerActionBtn?.addEventListener("pointercancel", handleComposerActionPointerCancel);
     dom.messages.addEventListener("click", handleVoiceNoteToggle);
     dom.messages.addEventListener("click", handleMessageActionClick);
     for (const eventName of ["loadedmetadata", "timeupdate", "play", "pause", "ended", "waiting", "canplay"]) {
@@ -5176,16 +5589,13 @@ function bindUi() {
         }
     });
 
-    dom.recordVoiceBtn?.addEventListener("click", () => {
-        startRecording("audio").catch((error) => {
-            toast(error.message || "Не удалось записать голосовое сообщение.");
-        });
+    dom.attachMenuBtn?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleComposerActionPanel();
     });
-
-    dom.recordVideoBtn?.addEventListener("click", () => {
-        startRecording("video").catch((error) => {
-            toast(error.message || "Не удалось записать видеосообщение.");
-        });
+    dom.composerActionPanel?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        handleComposerActionPanelClick(event);
     });
 
     dom.emojiBtn.addEventListener("click", (event) => {
@@ -5193,6 +5603,7 @@ function bindUi() {
         const willOpen = dom.emojiPanel.classList.contains("hidden");
         if (willOpen) {
             clearSearchResults();
+            hideComposerActionPanel();
             setChatsDrawer(false);
             closeProfileSheet();
         }
@@ -5246,6 +5657,12 @@ function bindUi() {
         if (dom.emojiPanel.classList.contains("hidden")) return;
         if (dom.emojiPanel.contains(event.target) || dom.emojiBtn.contains(event.target)) return;
         hideEmojiPanel();
+    });
+
+    document.addEventListener("click", (event) => {
+        if (dom.composerActionPanel?.classList.contains("hidden")) return;
+        if (dom.composerActionPanel.contains(event.target) || dom.attachMenuBtn?.contains(event.target)) return;
+        hideComposerActionPanel();
     });
 
     document.addEventListener("click", (event) => {
@@ -5314,6 +5731,7 @@ function bindUi() {
         state.composerFocus = true;
         clearSearchResults();
         hideEmojiPanel();
+        hideComposerActionPanel();
         requestNotificationsFromGesture().catch(() => {
             // ignore
         });
@@ -5322,10 +5740,16 @@ function bindUi() {
         window.setTimeout(keepComposerVisible, 180);
         window.setTimeout(keepComposerVisible, 320);
     };
+    dom.messageInput.addEventListener("input", updateRecordingButtons);
+    dom.messageInput.addEventListener("focus", () => {
+        hideComposerActionPanel();
+        updateRecordingButtons();
+    });
     dom.messageInput.addEventListener("focus", onMobileComposerFocus);
     dom.messageInput.addEventListener("blur", () => {
         state.composerFocus = false;
         window.setTimeout(scheduleViewportMetrics, 80);
+        updateRecordingButtons();
     });
 
     window.addEventListener("resize", () => {
@@ -5368,6 +5792,10 @@ function bindUi() {
 
         if (!dom.emojiPanel.classList.contains("hidden")) {
             hideEmojiPanel();
+        }
+
+        if (!dom.composerActionPanel.classList.contains("hidden")) {
+            hideComposerActionPanel();
         }
 
         if (dom.searchPanel && !dom.searchPanel.classList.contains("hidden")) {

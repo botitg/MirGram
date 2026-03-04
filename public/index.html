@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07121d" />
     <title>MIRX</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/css/app.css?v=20260304c" />
+    <link rel="stylesheet" href="/css/app.css?v=20260304d" />
 </head>
 <body>
     <div id="toasts" class="toasts"></div>
@@ -173,25 +173,46 @@
 
                     <form id="composer" class="composer">
                         <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
-                        <div id="emojiPanel" class="emoji-panel hidden"></div>
-                        <input id="messageInput" type="text" maxlength="4000" placeholder="Сообщение" inputmode="text" enterkeyhint="send" autocomplete="off" />
-                        <div class="composer-tools">
-                            <label class="btn ghost file-btn" aria-label="Прикрепить фото">
-                                📷
-                                <input id="imageInput" type="file" accept="image/*" hidden />
-                            </label>
-                            <label class="btn ghost file-btn" aria-label="Добавить стикер">
-                                🧩
-                                <input id="stickerInput" type="file" accept="image/*" hidden />
-                            </label>
-                            <button id="recordVoiceBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать голосовое сообщение">
-                                🎙
+                        <button id="attachMenuBtn" type="button" class="btn ghost icon-btn attach-btn" aria-label="Открыть вложения" aria-haspopup="menu" aria-expanded="false">
+                            <span class="sr-only">Вложения</span>
+                        </button>
+                        <div id="composerActionPanel" class="composer-action-panel hidden" role="menu" aria-label="Меню вложений">
+                            <button type="button" class="composer-action-item" data-attach-action="image" role="menuitem">
+                                <span class="composer-action-item-icon" aria-hidden="true">&#128247;</span>
+                                <span class="composer-action-item-copy">
+                                    <strong>Фото</strong>
+                                    <small>Картинка или снимок</small>
+                                </span>
                             </button>
-                            <button id="recordVideoBtn" class="btn ghost file-btn record-btn" type="button" aria-label="Записать видеосообщение">
-                                🎬
+                            <button type="button" class="composer-action-item" data-attach-action="sticker" role="menuitem">
+                                <span class="composer-action-item-icon" aria-hidden="true">&#129513;</span>
+                                <span class="composer-action-item-copy">
+                                    <strong>Стикер</strong>
+                                    <small>Новый файл или пак</small>
+                                </span>
+                            </button>
+                            <button type="button" class="composer-action-item" data-record-mode="audio" role="menuitemradio" aria-checked="true">
+                                <span class="composer-action-item-icon" aria-hidden="true">&#127897;</span>
+                                <span class="composer-action-item-copy">
+                                    <strong>Голос</strong>
+                                    <small>Удерживайте кнопку справа</small>
+                                </span>
+                            </button>
+                            <button type="button" class="composer-action-item" data-record-mode="video" role="menuitemradio" aria-checked="false">
+                                <span class="composer-action-item-icon" aria-hidden="true">&#128249;</span>
+                                <span class="composer-action-item-copy">
+                                    <strong>Видео</strong>
+                                    <small>Круглое видеосообщение</small>
+                                </span>
                             </button>
                         </div>
-                        <button class="btn primary" type="submit">Отправить</button>
+                        <div id="emojiPanel" class="emoji-panel hidden"></div>
+                        <input id="messageInput" type="text" maxlength="4000" placeholder="Сообщение" inputmode="text" enterkeyhint="send" autocomplete="off" />
+                        <input id="imageInput" type="file" accept="image/*" hidden />
+                        <input id="stickerInput" type="file" accept="image/*" hidden />
+                        <button id="composerActionBtn" class="btn primary composer-primary-btn" type="submit" aria-label="Отправить сообщение">
+                            <span class="sr-only">Отправить сообщение</span>
+                        </button>
                     </form>
                     <div id="selectedImageBar" class="selected-image hidden"></div>
                 </div>
@@ -331,11 +352,11 @@
         </div>
     </div>
 
-    <script src="/config.js?v=20260304c"></script>
+    <script src="/config.js?v=20260304d"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
-    <script src="/js/auth-scene.js?v=20260304c"></script>
-    <script src="/js/app-scene.js?v=20260304c"></script>
+    <script src="/js/auth-scene.js?v=20260304d"></script>
+    <script src="/js/app-scene.js?v=20260304d"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/app.js?v=20260304c"></script>
+    <script src="/js/app.js?v=20260304d"></script>
 </body>
 </html>
