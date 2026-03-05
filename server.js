@@ -163,6 +163,8 @@ const callRoom = (chatId) => `call:${chatId}`;
 const MOJIBAKE_PAIR_RE = /[РС][\u0400-\u04ff]/g;
 const MOJIBAKE_DIRECT_RE = /рџ|в[\u00a0-\u203a]|Ð|Ñ|[ЃЌЏ™ќ]/g;
 let windows1251EncoderMap = null;
+const MOJIBAKE_PROBE_RE_EXT = /(?:[Ѓѓђќўџ™]|[РСГ][\u2018-\u203a]|[рсг][\u0090-\u00ff]|вЂ|в„|Ð|Ñ|Â|Ã)/;
+const MOJIBAKE_FRAGMENT_RE_EXT = /(?:[РСГ][\u0400-\u04ff\u2018-\u203a]|[рсг][\u0080-\u04ff]|в[\u0080-\u2044]|Ð|Ñ|Â|Ã|[Ѓѓђќўџ™])/g;
 
 function nowIso() {
     return new Date().toISOString();
@@ -238,6 +240,15 @@ function getWindows1251EncoderMap() {
 
 function countMojibakeFragments(value) {
     const input = String(value || '');
+    if (!input || !MOJIBAKE_PROBE_RE_EXT.test(input)) {
+        return 0;
+    }
+
+    const extendedMatches = input.match(MOJIBAKE_FRAGMENT_RE_EXT)?.length || 0;
+    if (extendedMatches > 0) {
+        return extendedMatches;
+    }
+
     const pairMatches = input.match(MOJIBAKE_PAIR_RE)?.length || 0;
     const directMatches = input.match(MOJIBAKE_DIRECT_RE)?.length || 0;
     return Math.floor(pairMatches / 2) + directMatches;

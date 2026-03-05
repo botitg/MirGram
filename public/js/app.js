@@ -41,6 +41,8 @@ function assetUrl(pathOrUrl) {
 
 const MOJIBAKE_FRAGMENT_RE = /Р[\u0400-\u04ff]|С[\u0400-\u04ff]|рџ|в[\u00a0-\u203a]|Ð|Ñ|[ЃЌЏ™ќ]/g;
 let windows1251EncoderMap = null;
+const MOJIBAKE_PROBE_RE_EXT = /(?:[Ѓѓђќўџ™]|[РСГ][\u2018-\u203a]|[рсг][\u0090-\u00ff]|вЂ|в„|Ð|Ñ|Â|Ã)/;
+const MOJIBAKE_FRAGMENT_RE_EXT = /(?:[РСГ][\u0400-\u04ff\u2018-\u203a]|[рсг][\u0080-\u04ff]|в[\u0080-\u2044]|Ð|Ñ|Â|Ã|[Ѓѓђќўџ™])/g;
 let socketIoLoaderPromise = null;
 let socketIoWarningShown = false;
 
@@ -66,7 +68,16 @@ function getWindows1251EncoderMap() {
 }
 
 function countMojibakeFragments(value) {
-    return String(value || "").match(MOJIBAKE_FRAGMENT_RE)?.length || 0;
+    const input = String(value || "");
+    if (!input || !MOJIBAKE_PROBE_RE_EXT.test(input)) {
+        return 0;
+    }
+
+    const fragments = input.match(MOJIBAKE_FRAGMENT_RE_EXT)?.length || 0;
+    if (fragments > 0) {
+        return fragments;
+    }
+    return input.match(MOJIBAKE_FRAGMENT_RE)?.length || 0;
 }
 
 function encodeWindows1251(value) {
@@ -223,6 +234,7 @@ const state = {
     onlineUsers: new Map(),
     typingMap: new Map(),
     searchQuery: "",
+    chatFilter: "all",
     searchResults: {
         chats: [],
         users: [],
@@ -306,7 +318,7 @@ const rtcConfig = {
         }],
 };
 
-const MOBILE_BREAKPOINT = 840;
+const MOBILE_BREAKPOINT = 1023;
 
 const EMOJI_GROUPS = [
     {
@@ -378,6 +390,7 @@ const dom = {
     profileBox: document.getElementById("profileBox"),
     chatActions: document.getElementById("chatActions"),
     membersBox: document.getElementById("membersBox"),
+    infoPanel: document.querySelector(".info-panel"),
     profileOpenBtn: document.getElementById("profileOpenBtn"),
     profileOpenAvatar: document.getElementById("profileOpenAvatar"),
     profileOpenName: document.getElementById("profileOpenName"),
@@ -666,6 +679,26 @@ function syncMobileLayoutState() {
     document.body.classList.toggle("mobile-chat-active", chatActive);
     document.body.classList.toggle("mobile-chat-list-active", chatListActive);
     document.body.classList.toggle("composer-focused", chatActive && state.composerFocus);
+
+    if (window.innerWidth >= 1280) {
+        setInfoDrawer(false, { force: true });
+    }
+}
+
+function setInfoDrawer(open, { force = false } = {}) {
+    const canUseDrawer = window.innerWidth < 1280;
+    const shouldOpen = Boolean((force ? open : (open && canUseDrawer)) && hasCurrentChatSelection());
+    document.body.classList.toggle("info-drawer-open", shouldOpen);
+    const showBackdrop = shouldOpen || dom.chatsPanel?.classList.contains("open");
+    dom.mobileDrawerBackdrop?.classList.toggle("hidden", !showBackdrop);
+    document.body.classList.toggle(
+        "drawer-open",
+        shouldOpen
+        || dom.chatsPanel?.classList.contains("open")
+        || !(dom.profileSheet?.classList.contains("hidden"))
+        || !(dom.callOverlay?.classList.contains("hidden"))
+    );
+    syncFloatingUiState();
 }
 
 function syncFloatingUiState() {
@@ -676,6 +709,7 @@ function syncFloatingUiState() {
     const profileOpen = dom.profileSheet && !dom.profileSheet.classList.contains("hidden");
     const modalOpen = dom.modal && !dom.modal.classList.contains("hidden");
     const callOpen = dom.callOverlay && !dom.callOverlay.classList.contains("hidden");
+    const infoOpen = document.body.classList.contains("info-drawer-open");
 
     document.body.classList.toggle("chats-open", Boolean(chatsOpen));
     document.body.classList.toggle("search-open", Boolean(searchOpen));
@@ -684,9 +718,10 @@ function syncFloatingUiState() {
     document.body.classList.toggle("profile-open", Boolean(profileOpen));
     document.body.classList.toggle("modal-open", Boolean(modalOpen));
     document.body.classList.toggle("call-open", Boolean(callOpen));
+    document.body.classList.toggle("info-open", Boolean(infoOpen));
     document.body.classList.toggle(
         "surface-open",
-        Boolean(chatsOpen || searchOpen || emojiOpen || attachOpen || profileOpen || modalOpen || callOpen)
+        Boolean(chatsOpen || searchOpen || emojiOpen || attachOpen || profileOpen || modalOpen || callOpen || infoOpen)
     );
 }
 
@@ -829,21 +864,26 @@ function getVirtualKeyboardHeight() {
 }
 
 function setChatsDrawer(open) {
-    const shouldOpen = Boolean(open && isMobileViewport() && state.me && hasCurrentChatSelection());
+    const shouldOpen = Boolean(open && isMobileViewport() && state.me);
+    const infoDrawerOpen = document.body.classList.contains("info-drawer-open");
+    const showBackdrop = shouldOpen || infoDrawerOpen;
 
     dom.chatsPanel.classList.toggle("open", shouldOpen);
     dom.mobileChatsToggle.classList.toggle("active", shouldOpen);
     dom.mobileChatsToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
-    dom.mobileDrawerBackdrop.classList.toggle("hidden", !shouldOpen);
+    dom.mobileDrawerBackdrop.classList.toggle("hidden", !showBackdrop);
     document.body.classList.toggle(
         "drawer-open",
-        shouldOpen || !dom.profileSheet.classList.contains("hidden") || !dom.callOverlay.classList.contains("hidden")
+        shouldOpen
+        || infoDrawerOpen
+        || !dom.profileSheet.classList.contains("hidden")
+        || !dom.callOverlay.classList.contains("hidden")
     );
     syncFloatingUiState();
 }
 
 function toggleChatsDrawer() {
-    if (!hasCurrentChatSelection()) {
+    if (!state.me) {
         setChatsDrawer(false);
         return;
     }
@@ -853,6 +893,7 @@ function toggleChatsDrawer() {
         hideEmojiPanel();
         hideComposerActionPanel();
         closeProfileSheet();
+        setInfoDrawer(false);
     }
     setChatsDrawer(!dom.chatsPanel.classList.contains("open"));
 }
@@ -1496,6 +1537,7 @@ function openProfileSheet() {
     hideEmojiPanel();
     hideComposerActionPanel();
     setChatsDrawer(false);
+    setInfoDrawer(false);
     fillProfileEditor();
     dom.profileSheet.classList.remove("hidden");
     dom.profileSheet.setAttribute("aria-hidden", "false");
@@ -1511,7 +1553,7 @@ function closeProfileSheet() {
     if (dom.profileEditorAvatarInput) {
         dom.profileEditorAvatarInput.value = "";
     }
-    if (!dom.chatsPanel.classList.contains("open")) {
+    if (!dom.chatsPanel.classList.contains("open") && !document.body.classList.contains("info-drawer-open")) {
         document.body.classList.remove("drawer-open");
     }
     syncFloatingUiState();
@@ -2345,9 +2387,334 @@ function renderMembers() {
     }
 }
 
+function applyActiveChatFilter(chats) {
+    const input = Array.isArray(chats) ? chats : [];
+    switch (state.chatFilter) {
+        case "private":
+            return input.filter((chat) => chat.type === "private");
+        case "group":
+            return input.filter((chat) => chat.type === "group");
+        case "history":
+            return input.slice().sort((left, right) => {
+                const leftDate = left?.lastMessage?.createdAt ? new Date(left.lastMessage.createdAt).getTime() : 0;
+                const rightDate = right?.lastMessage?.createdAt ? new Date(right.lastMessage.createdAt).getTime() : 0;
+                return rightDate - leftDate;
+            });
+        default:
+            return input;
+    }
+}
+
+function renderChats() {
+    const searchMatchedChats = filterChatsByQuery(state.searchQuery);
+    const chats = applyActiveChatFilter(searchMatchedChats);
+    const filters = [
+        { value: "all", label: "Все" },
+        { value: "private", label: "Личные" },
+        { value: "group", label: "Группы" },
+        { value: "history", label: "История" },
+    ];
+
+    state.filteredChats = chats;
+
+    const actionItems = `
+        <section class="chat-history-head">
+            <div class="chat-history-title-row">
+                <h3>Чаты</h3>
+                <button type="button" class="chat-create-fab" data-create="menu" aria-label="Создать чат">+</button>
+            </div>
+            <div class="chat-filter-tabs">
+                ${filters.map((filter) => `
+                    <button
+                        type="button"
+                        class="chat-filter-tab ${state.chatFilter === filter.value ? "active" : ""}"
+                        data-chat-filter="${filter.value}"
+                    >${filter.label}</button>
+                `).join("")}
+            </div>
+        </section>
+    `;
+
+    if (!chats.length) {
+        setInnerHtmlAndRepair(dom.chatList, `
+            ${actionItems}
+            <div class="chat-list-empty">
+                <p class="hint">Чатов пока нет. Создайте личный чат или группу.</p>
+            </div>
+        `);
+        return;
+    }
+
+    const chatItems = chats.map((chat) => {
+        const active = chat.id === state.currentChatId ? "active" : "";
+        const preview = getChatPreviewText(chat);
+        const peerOnline = chat.type === "private" && chat.peerId ? isOnline(chat.peerId) : false;
+        const unreadCount = Math.max(0, Number(chat.unreadCount || 0));
+        const unreadBadge = unreadCount
+            ? `<span class="chat-unread-badge">${unreadCount > 99 ? "99+" : unreadCount}</span>`
+            : "";
+
+        return `
+            <article class="chat-item ${active}" data-chat-id="${chat.id}">
+                <div class="chat-avatar">
+                    <img src="${escapeHtml(getChatAvatarUrl(chat))}" alt="${escapeHtml(getChatDisplayName(chat))}" />
+                    ${chat.type === "private" ? `<span class="chat-avatar-status ${peerOnline ? "online" : "offline"}"></span>` : ""}
+                </div>
+                <div class="chat-card-body">
+                    <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
+                    <p class="chat-preview">${escapeHtml(preview)}</p>
+                </div>
+                <div class="chat-card-side">
+                    <span class="chat-time">${escapeHtml(chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "сейчас")}</span>
+                    ${unreadBadge}
+                </div>
+            </article>
+        `;
+    }).join("");
+
+    setInnerHtmlAndRepair(dom.chatList, `
+        ${actionItems}
+        ${chatItems}
+    `);
+}
+
+function renderChatHeader() {
+    const chat = getCurrentChat();
+    if (!chat || !state.currentChat) {
+        dom.chatHeader.innerHTML = "";
+        return;
+    }
+
+    const isPrivateChat = chat.type === "private";
+    const privatePeer = isPrivateChat
+        ? state.members.find((member) => Number(member.id) !== Number(state.me?.id))
+        : null;
+    const callStatus = state.callStatusByChat.get(chat.id);
+    const inCurrentCall = callState.active && callState.chatId === chat.id;
+    const canUseCallAction = callStatus?.active
+        ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
+        : Boolean(state.myPermissions?.canStartCalls);
+
+    const membersCount = Math.max(0, Number(state.members.length || 0));
+    const membersLabel = membersCount === 1
+        ? "1 участник"
+        : `${membersCount} участников`;
+    const subtitle = isPrivateChat
+        ? (privatePeer && isOnline(privatePeer.id) ? "В сети" : "Личный чат")
+        : `Группа • ${membersLabel}`;
+
+    const actionLabel = inCurrentCall
+        ? "Открыть звонок"
+        : callStatus?.active
+            ? (isPrivateChat ? "Ответить" : "Войти")
+            : (isPrivateChat ? "Позвонить" : "Эфир");
+    const callIcon = inCurrentCall ? "📡" : (callStatus?.mode === "video" ? "📹" : "📞");
+    const avatarUrl = getChatAvatarUrl(chat, privatePeer);
+    const mobileBackButton = isMobileViewport()
+        ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">←</button>`
+        : "";
+
+    setInnerHtmlAndRepair(dom.chatHeader, `
+        <div class="chat-header-main">
+            ${mobileBackButton}
+            <div class="chat-header-avatar">
+                <img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(getChatDisplayName(chat))}" />
+                ${isPrivateChat && privatePeer ? `<span class="chat-avatar-status ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>` : ""}
+            </div>
+            <div class="chat-title">
+                <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
+                <small>${escapeHtml(subtitle)}</small>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="chatSearchBtn" class="btn ghost chat-header-btn" type="button" aria-label="Поиск">
+                <span class="chat-header-btn-icon" aria-hidden="true">🔎</span>
+                <span class="chat-header-btn-label">Поиск</span>
+            </button>
+            <button
+                id="chatCallBtn"
+                class="btn ghost call-entry-btn chat-header-btn"
+                type="button"
+                ${!canUseCallAction ? "disabled" : ""}
+                aria-label="${escapeHtml(actionLabel)}"
+            >
+                <span class="chat-header-btn-icon" aria-hidden="true">${callIcon}</span>
+                <span class="chat-header-btn-label">${escapeHtml(actionLabel)}</span>
+            </button>
+            <button id="chatInfoBtn" class="btn ghost chat-header-btn" type="button" aria-label="Инфо чата">
+                <span class="chat-header-btn-icon" aria-hidden="true">ⓘ</span>
+                <span class="chat-header-btn-label">Инфо</span>
+            </button>
+            <button id="chatMenuBtn" class="btn ghost chat-header-btn" type="button" aria-label="История чата">
+                <span class="chat-header-btn-icon" aria-hidden="true">⋯</span>
+                <span class="chat-header-btn-label">История</span>
+            </button>
+        </div>
+    `);
+
+    document.getElementById("chatCallBtn")?.addEventListener("click", () => {
+        if (inCurrentCall) {
+            openCallOverlay();
+            refreshCallUi();
+            return;
+        }
+
+        if (callStatus?.active) {
+            joinExistingCall();
+            return;
+        }
+
+        startCall();
+    });
+    document.getElementById("chatSearchBtn")?.addEventListener("click", () => {
+        if (isMobileViewport()) {
+            openInfoModal({
+                title: "Поиск",
+                html: "<p class='hint'>Поиск по людям и чатам доступен в верхней строке на экране списка чатов.</p>",
+            });
+            return;
+        }
+        dom.chatSearch?.focus();
+    });
+    document.getElementById("chatInfoBtn")?.addEventListener("click", () => {
+        if (window.innerWidth < 1280) {
+            const isOpen = document.body.classList.contains("info-drawer-open");
+            setInfoDrawer(!isOpen);
+            return;
+        }
+        dom.infoPanel?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    document.getElementById("chatMenuBtn")?.addEventListener("click", openChatHistoryModal);
+    document.getElementById("mobileChatBackBtn")?.addEventListener("click", closeMobileChatView);
+}
+
+function renderMembers() {
+    if (!state.currentChat) {
+        dom.membersBox.innerHTML = "";
+        dom.chatActions.innerHTML = "";
+        return;
+    }
+
+    const membersHtml = state.members.map((member) => {
+        const roleBadge = member.role === "owner"
+            ? "<span class='badge'>Создатель</span>"
+            : member.role === "admin"
+                ? "<span class='badge'>Админ</span>"
+                : "";
+        return `
+            <div class="member-item">
+                <div class="member-avatar"><img src="${escapeHtml(assetUrl(member.displayAvatar || member.avatarUrl))}" alt="${escapeHtml(member.displayName)}" /></div>
+                <div class="member-copy">
+                    <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
+                    <div class="hint member-status-line">
+                        <span class="status-dot ${isOnline(member.id) ? "online" : "offline"}"></span>
+                        <span>@${escapeHtml(member.username)} · ${isOnline(member.id) ? "Онлайн" : "Оффлайн"}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    const historyEntries = buildHistoryEntries();
+    const historyHtml = historyEntries.length
+        ? historyEntries.slice(0, 8).map((entry) => `
+            <article class="history-item compact">
+                <div class="history-avatar">
+                    ${entry.avatarUrl ? `<img src="${escapeHtml(assetUrl(entry.avatarUrl))}" alt="history" />` : `<span>⌛</span>`}
+                </div>
+                <div class="history-copy">
+                    <strong>${escapeHtml(entry.kind === "view" ? "Просмотр" : entry.kind === "sticker" ? "Стикер" : "Событие")}</strong>
+                    <span>${escapeHtml(entry.text)}</span>
+                </div>
+                <time>${escapeHtml(formatTime(entry.createdAt))}</time>
+            </article>
+        `).join("")
+        : `<p class="hint">История появится после сообщений и просмотров.</p>`;
+
+    const stickerPackHtml = state.chatStickers.length
+        ? `
+            <div class="sticker-pack-grid">
+                ${state.chatStickers.map((sticker) => `
+                    <button type="button" class="sticker-pack-item" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                        <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                    </button>
+                `).join("")}
+            </div>
+        `
+        : `<p class="hint">Стикеров пока нет.</p>`;
+
+    setInnerHtmlAndRepair(dom.membersBox, `
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Участники</h3>
+                <span>${state.members.length}</span>
+            </div>
+            <div class="members-list">${membersHtml || "<p class='hint'>Участников пока нет.</p>"}</div>
+        </section>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>История</h3>
+                <span>${historyEntries.length}</span>
+            </div>
+            <div class="history-list">${historyHtml}</div>
+        </section>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Стикеры</h3>
+                <span>${state.chatStickers.length}</span>
+            </div>
+            ${stickerPackHtml}
+        </section>
+    `);
+
+    const canManage = state.myRole === "owner" || state.myRole === "admin";
+    const canAddStickers = state.currentChat.type === "group" && state.myRole === "owner";
+
+    setInnerHtmlAndRepair(dom.chatActions, `
+        <section class="sidebar-section sidebar-action-section">
+            <div class="sidebar-section-head">
+                <h3>Настройки чата</h3>
+            </div>
+            <div class="chat-action-list">
+                <button id="myChatProfileBtn" type="button" class="chat-action-row">
+                    <span>Ник и аватар в чате</span><i aria-hidden="true">›</i>
+                </button>
+                ${state.currentChat.type === "group" && canManage ? `
+                    <button id="addMemberBtn" type="button" class="chat-action-row">
+                        <span>Добавить участника</span><i aria-hidden="true">›</i>
+                    </button>
+                ` : ""}
+                ${state.currentChat.type === "group" && canManage ? `
+                    <button id="manageMemberBtn" type="button" class="chat-action-row">
+                        <span>Права участника</span><i aria-hidden="true">›</i>
+                    </button>
+                ` : ""}
+                ${canAddStickers ? `
+                    <button id="addStickerToPackBtn" type="button" class="chat-action-row">
+                        <span>Добавить стикер</span><i aria-hidden="true">›</i>
+                    </button>
+                ` : ""}
+            </div>
+        </section>
+    `);
+
+    document.getElementById("myChatProfileBtn")?.addEventListener("click", openMyChatProfile);
+    document.getElementById("addMemberBtn")?.addEventListener("click", openAddMemberModal);
+    document.getElementById("manageMemberBtn")?.addEventListener("click", openManageMemberModal);
+    document.getElementById("addStickerToPackBtn")?.addEventListener("click", () => dom.stickerInput?.click());
+    for (const button of dom.membersBox.querySelectorAll("[data-send-sticker-id]")) {
+        button.addEventListener("click", () => {
+            sendStickerFromPack(button.dataset.sendStickerId).catch((error) => {
+                toast(error.message || "Не удалось отправить стикер.");
+            });
+        });
+    }
+}
+
 function renderCurrentChat() {
     const chat = getCurrentChat();
     if (!chat) {
+        setInfoDrawer(false, { force: true });
         dom.emptyState.classList.remove("hidden");
         dom.chatView.classList.add("hidden");
         applyComposerPermissions();
@@ -2459,6 +2826,7 @@ async function loadChats() {
         renderCurrentChat();
         if (isMobileViewport() && !state.currentChatId) {
             setChatsDrawer(false);
+            setInfoDrawer(false, { force: true });
         }
     }
 }
@@ -2477,6 +2845,7 @@ function closeMobileChatView() {
     renderSelectedImage();
     clearSearchResults();
     setChatsDrawer(false);
+    setInfoDrawer(false, { force: true });
     renderChats();
     renderCurrentChat();
     scheduleViewportMetrics();
@@ -2638,6 +3007,38 @@ async function logout() {
     renderProfile();
     renderSelectedImage();
     setChatsDrawer(false);
+}
+
+async function openCreateChatMenu() {
+    try {
+        const payload = await openModal({
+            title: "Создать чат",
+            submitLabel: "Продолжить",
+            fields: [
+                {
+                    name: "chatType",
+                    type: "select",
+                    label: "Тип чата",
+                    required: true,
+                    options: [
+                        { value: "private", label: "Личный чат" },
+                        { value: "group", label: "Группа" },
+                    ],
+                },
+            ],
+        });
+
+        if (payload.chatType === "private") {
+            await openNewPrivateChat();
+            return;
+        }
+
+        await openNewGroupChat();
+    } catch (error) {
+        if (error.message !== "cancelled") {
+            toast(error.message || "Не удалось открыть создание чата.");
+        }
+    }
 }
 
 async function openNewPrivateChat() {
@@ -5462,6 +5863,7 @@ function bindUi() {
             hideEmojiPanel();
             hideComposerActionPanel();
             setChatsDrawer(false);
+            setInfoDrawer(false);
             closeProfileSheet();
         }
         if (state.searchQuery.trim()) {
@@ -5502,10 +5904,25 @@ function bindUi() {
     });
 
     dom.chatList.addEventListener("click", async (event) => {
+        const filterButton = event.target.closest("[data-chat-filter]");
+        if (filterButton) {
+            const nextFilter = String(filterButton.dataset.chatFilter || "all");
+            state.chatFilter = ["all", "private", "group", "history"].includes(nextFilter)
+                ? nextFilter
+                : "all";
+            renderChats();
+            return;
+        }
+
         const createItem = event.target.closest("[data-create]");
         if (createItem) {
             if (isMobileViewport()) {
                 setChatsDrawer(false);
+            }
+
+            if (createItem.dataset.create === "menu") {
+                await openCreateChatMenu();
+                return;
             }
 
             if (createItem.dataset.create === "private") {
@@ -5527,6 +5944,7 @@ function bindUi() {
 
         if (isMobileViewport()) {
             setChatsDrawer(false);
+            setInfoDrawer(false);
         }
 
         await openChat(chatId);
@@ -5712,7 +6130,10 @@ function bindUi() {
 
     dom.mobileChatsToggle.addEventListener("click", toggleChatsDrawer);
     dom.mobileChatsClose?.addEventListener("click", () => setChatsDrawer(false));
-    dom.mobileDrawerBackdrop?.addEventListener("click", () => setChatsDrawer(false));
+    dom.mobileDrawerBackdrop?.addEventListener("click", () => {
+        setChatsDrawer(false);
+        setInfoDrawer(false);
+    });
     dom.profileOpenBtn?.addEventListener("click", openProfileSheet);
     dom.profileSheetClose?.addEventListener("click", closeProfileSheet);
     dom.profileSheetBackdrop?.addEventListener("click", closeProfileSheet);
@@ -5795,6 +6216,9 @@ function bindUi() {
         if (!isMobileViewport()) {
             setChatsDrawer(false);
         }
+        if (window.innerWidth >= 1280 || !hasCurrentChatSelection()) {
+            setInfoDrawer(false, { force: true });
+        }
         scheduleViewportMetrics();
     });
     window.visualViewport?.addEventListener("resize", scheduleViewportMetrics);
@@ -5847,6 +6271,10 @@ function bindUi() {
 
         if (!dom.callOverlay.classList.contains("hidden")) {
             closeCallOverlay();
+        }
+
+        if (document.body.classList.contains("info-drawer-open")) {
+            setInfoDrawer(false);
         }
 
         if (state.replyToMessage) {
