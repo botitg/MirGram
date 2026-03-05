@@ -1064,6 +1064,8 @@ function updateViewportMetrics() {
     syncMobileLayoutState();
 
     if (keyboardOpen) {
+        hideEmojiPanel();
+        hideComposerActionPanel();
         keepComposerVisible();
     }
 }
