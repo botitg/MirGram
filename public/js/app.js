@@ -3251,6 +3251,67 @@ function extractMessagesFromPayload(payload) {
     return [];
 }
 
+async function ensureMobileMessagesVisible(chatIdSnapshot) {
+    if (!isMobileViewport()) return;
+    const chatId = Number(chatIdSnapshot || state.currentChatId || 0);
+    if (!chatId || Number(state.currentChatId) !== chatId) return;
+    if (!dom.messages) return;
+
+    const hasVisibleMessages = () => Boolean(dom.messages.querySelector(".msg"));
+    const hasStateMessages = () => Array.isArray(state.messages) && state.messages.length > 0;
+
+    // Let layout/render settle once.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    if (Number(state.currentChatId) !== chatId) return;
+    enforceMobileMessageVisibility();
+    if (hasVisibleMessages()) return;
+
+    if (!hasStateMessages()) {
+        try {
+            const retry = await api(`/api/chats/${chatId}/messages?limit=200`);
+            if (Number(state.currentChatId) !== chatId) return;
+            state.messages = extractMessagesFromPayload(retry);
+        } catch {
+            // keep current state
+        }
+    }
+
+    if (Number(state.currentChatId) !== chatId) return;
+    renderMessages();
+    enforceMobileMessageVisibility();
+    if (hasVisibleMessages()) return;
+
+    // Final minimal fallback renderer for mobile.
+    if (!hasStateMessages()) {
+        setInnerHtmlAndRepair(dom.messages, "<p class='hint'>No messages yet</p>");
+        enforceMobileMessageVisibility();
+        return;
+    }
+
+    const fallbackMarkup = state.messages
+        .filter((item) => item && typeof item === "object")
+        .map((message, index) => {
+            const isSelf = Boolean(message.sender && state.me && Number(message.sender.id) === Number(state.me.id));
+            const senderName = escapeHtml(String(message.sender?.displayName || message.sender?.username || "User"));
+            const body = message.text
+                ? escapeHtml(String(message.text))
+                : escapeHtml(getMessageTypeLabel(message));
+            const time = escapeHtml(formatTime(message.createdAt));
+            return `
+                <article class="msg ${isSelf ? "self" : ""}" data-fallback-msg="${index}" style="display:block !important; visibility:visible !important; opacity:1 !important;">
+                    <div class="msg-head"><span>${senderName}</span><span>${time}</span></div>
+                    <div>${body}</div>
+                </article>
+            `;
+        })
+        .join("");
+
+    if (fallbackMarkup) {
+        setInnerHtmlAndRepair(dom.messages, fallbackMarkup);
+        enforceMobileMessageVisibility();
+    }
+}
+
 async function openChat(chatId) {
     if (state.recording.kind && Number(chatId) !== Number(state.currentChatId)) {
         await stopRecording({ sendAfterStop: false, cancel: true });
@@ -3335,6 +3396,9 @@ async function openChat(chatId) {
 
     renderChats();
     renderCurrentChat();
+    ensureMobileMessagesVisible(state.currentChatId).catch(() => {
+        // ignore
+    });
     markCurrentChatViewed(true).catch(() => {
         // ignore
     });
