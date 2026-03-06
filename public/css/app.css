@@ -7373,4 +7373,38 @@ body.keyboard-open .topbar {
         align-items: center !important;
         justify-content: center !important;
     }
+
+    body.mobile-chat-active #messages .mobile-msg-fallback {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        margin: 8px 0 !important;
+        padding: 10px 12px !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(130, 176, 219, 0.45) !important;
+        background: rgba(34, 82, 127, 0.96) !important;
+        color: #f4f8ff !important;
+        font-size: 14px !important;
+        line-height: 1.35 !important;
+    }
+
+    body.mobile-chat-active #messages .mobile-msg-fallback.self {
+        margin-left: auto !important;
+        background: linear-gradient(135deg, rgba(44, 121, 184, 0.98), rgba(70, 150, 214, 0.95)) !important;
+    }
+
+    body.mobile-chat-active #messages .mobile-msg-fallback-head {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        margin-bottom: 4px !important;
+        font-size: 12px !important;
+        color: rgba(225, 239, 255, 0.92) !important;
+    }
+
+    body.mobile-chat-active #messages .mobile-msg-fallback-body {
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+    }
 }

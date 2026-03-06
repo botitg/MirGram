@@ -3257,7 +3257,17 @@ async function ensureMobileMessagesVisible(chatIdSnapshot) {
     if (!chatId || Number(state.currentChatId) !== chatId) return;
     if (!dom.messages) return;
 
-    const hasVisibleMessages = () => Boolean(dom.messages.querySelector(".msg"));
+    const hasVisibleMessages = () => {
+        const firstMessage = dom.messages.querySelector(".msg, .mobile-msg-fallback");
+        if (!firstMessage) return false;
+        const style = window.getComputedStyle(firstMessage);
+        const rect = firstMessage.getBoundingClientRect();
+        return style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity || 1) > 0.05
+            && rect.width > 0
+            && rect.height > 0;
+    };
     const hasStateMessages = () => Array.isArray(state.messages) && state.messages.length > 0;
 
     // Let layout/render settle once.
@@ -3298,9 +3308,9 @@ async function ensureMobileMessagesVisible(chatIdSnapshot) {
                 : escapeHtml(getMessageTypeLabel(message));
             const time = escapeHtml(formatTime(message.createdAt));
             return `
-                <article class="msg ${isSelf ? "self" : ""}" data-fallback-msg="${index}" style="display:block !important; visibility:visible !important; opacity:1 !important;">
-                    <div class="msg-head"><span>${senderName}</span><span>${time}</span></div>
-                    <div>${body}</div>
+                <article class="mobile-msg-fallback ${isSelf ? "self" : ""}" data-fallback-msg="${index}">
+                    <div class="mobile-msg-fallback-head"><span>${senderName}</span><span>${time}</span></div>
+                    <div class="mobile-msg-fallback-body">${body}</div>
                 </article>
             `;
         })
