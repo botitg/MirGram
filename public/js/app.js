@@ -1,6 +1,7 @@
 const TOKEN_KEY = "mirx.token";
 const NOTIFICATION_PROMPT_KEY = "mirx.notifications.prompted";
 const RECENT_EMOJIS_KEY = "mirx.emojis.recent";
+const CHAT_NOTIFICATION_PREFS_KEY = "mirx.chat-notifications";
 const runtimeConfig = window.MIRNA_CONFIG || {};
 
 function normalizeBaseUrl(value) {
@@ -235,6 +236,8 @@ const state = {
     typingMap: new Map(),
     searchQuery: "",
     chatFilter: "all",
+    memberSearchQuery: "",
+    memberStatusFilter: "all",
     searchResults: {
         chats: [],
         users: [],
@@ -269,6 +272,8 @@ const state = {
     preferredRecorderKind: "audio",
     virtualKeyboardHeight: 0,
     virtualKeyboardOverlay: false,
+    localMessageSeq: 0,
+    chatNotificationMuted: {},
     recording: {
         chatId: null,
         kind: null,
@@ -1222,6 +1227,58 @@ function setToken(token) {
     }
 }
 
+function loadChatNotificationPrefs() {
+    try {
+        const raw = window.localStorage?.getItem(CHAT_NOTIFICATION_PREFS_KEY) || "{}";
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+            return {};
+        }
+        return parsed;
+    } catch {
+        return {};
+    }
+}
+
+function saveChatNotificationPrefs() {
+    try {
+        window.localStorage?.setItem(CHAT_NOTIFICATION_PREFS_KEY, JSON.stringify(state.chatNotificationMuted || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function isChatNotificationsEnabled(chatId) {
+    const id = Number(chatId);
+    if (!id) return true;
+    return !Boolean(state.chatNotificationMuted?.[String(id)]);
+}
+
+function setChatNotificationsEnabled(chatId, enabled) {
+    const id = Number(chatId);
+    if (!id) return;
+
+    if (!state.chatNotificationMuted || typeof state.chatNotificationMuted !== "object") {
+        state.chatNotificationMuted = {};
+    }
+
+    if (enabled) {
+        delete state.chatNotificationMuted[String(id)];
+    } else {
+        state.chatNotificationMuted[String(id)] = true;
+    }
+
+    saveChatNotificationPrefs();
+}
+
+function normalizeMemberStatusFilter(value) {
+    const input = String(value || "all").toLowerCase();
+    if (input === "online" || input === "offline") {
+        return input;
+    }
+    return "all";
+}
+
 function loadRecentEmojis() {
     try {
         const parsed = JSON.parse(window.localStorage?.getItem(RECENT_EMOJIS_KEY) || "[]");
@@ -1611,6 +1668,129 @@ function renderProfile() {
     renderProfileTrigger();
     document.getElementById("editProfileBtn")?.addEventListener("click", openProfileSheet);
     document.getElementById("enableNotificationsBtn")?.addEventListener("click", enablePushNotifications);
+}
+
+function resolveUserProfilePayload(rawUser) {
+    const input = rawUser && typeof rawUser === "object" ? rawUser : {};
+    const userId = Number(input.id || input.userId || 0);
+    const fromMembers = userId
+        ? state.members.find((member) => Number(member.id) === userId)
+        : null;
+
+    const username = String(
+        input.username
+        || fromMembers?.username
+        || ""
+    ).trim();
+    const displayName = String(
+        input.displayName
+        || input.name
+        || fromMembers?.displayName
+        || username
+        || (userId ? `user_${userId}` : "Пользователь")
+    ).trim();
+
+    return {
+        id: userId || Number(fromMembers?.id || 0),
+        username: username || String(fromMembers?.username || "").trim() || "user",
+        displayName,
+        avatarUrl: assetUrl(
+            input.displayAvatar
+            || input.groupAvatarUrl
+            || input.avatarUrl
+            || fromMembers?.displayAvatar
+            || fromMembers?.groupAvatarUrl
+            || fromMembers?.avatarUrl
+            || defaultAvatar(username || displayName || "user")
+        ),
+        role: input.role || fromMembers?.role || "",
+    };
+}
+
+function openUserProfileModal(rawUser, { allowCall = true } = {}) {
+    const profile = resolveUserProfilePayload(rawUser);
+    if (!profile.id) {
+        toast("Профиль пользователя недоступен.");
+        return;
+    }
+
+    const isSelf = Number(profile.id) === Number(state.me?.id);
+    const online = isOnline(profile.id);
+    const statusText = online ? "Онлайн" : "Не в сети";
+    const roleLine = profile.role
+        ? `<span class="user-profile-role">${escapeHtml(profile.role === "owner" ? "Создатель" : profile.role === "admin" ? "Админ" : "Участник")}</span>`
+        : "";
+
+    const controlsMarkup = isSelf
+        ? `
+            <div class="user-profile-actions">
+                <button type="button" id="profileOpenSelfBtn" class="btn primary">Открыть мой профиль</button>
+            </div>
+        `
+        : `
+            <div class="user-profile-actions">
+                <button type="button" id="profileDmBtn" class="btn primary">Написать</button>
+                <button type="button" id="profileCallBtn" class="btn ghost" ${allowCall ? "" : "disabled"}>Позвонить</button>
+                <button type="button" id="profileModerateBtn" class="btn ghost">Пожаловаться / Блок</button>
+            </div>
+        `;
+
+    openInfoModal({
+        title: "Профиль",
+        html: `
+            <section class="user-profile-modal">
+                <div class="user-profile-head">
+                    <img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.displayName)}" />
+                    <div class="user-profile-copy">
+                        <strong>${escapeHtml(profile.displayName)}</strong>
+                        <span class="user-profile-username">@${escapeHtml(profile.username)}</span>
+                        <div class="user-profile-status">
+                            <span class="status-dot ${online ? "online" : "offline"}"></span>
+                            <span>${statusText}</span>
+                            ${roleLine}
+                        </div>
+                    </div>
+                </div>
+                <div class="user-profile-meta">
+                    <div><span>ID</span><strong>${profile.id}</strong></div>
+                    <div><span>username</span><strong>@${escapeHtml(profile.username)}</strong></div>
+                </div>
+                ${controlsMarkup}
+            </section>
+        `,
+    });
+
+    document.getElementById("profileOpenSelfBtn")?.addEventListener("click", () => {
+        closeModal(false);
+        openProfileSheet();
+    });
+
+    document.getElementById("profileDmBtn")?.addEventListener("click", () => {
+        closeModal(false);
+        openDirectChatFromSearch(profile.id).catch((error) => {
+            toast(error.message || "Не удалось открыть личный чат.");
+        });
+    });
+
+    document.getElementById("profileCallBtn")?.addEventListener("click", () => {
+        closeModal(false);
+        const currentPeerId = state.currentChat?.type === "private" ? Number(state.currentChat.peerId || 0) : 0;
+        const startInCurrentChat = currentPeerId && currentPeerId === Number(profile.id);
+        const startCallFlow = async () => {
+            if (!startInCurrentChat) {
+                await openDirectChatFromSearch(profile.id);
+            }
+            startCall();
+        };
+
+        startCallFlow().catch((error) => {
+            toast(error.message || "Не удалось начать звонок.");
+        });
+    });
+
+    document.getElementById("profileModerateBtn")?.addEventListener("click", () => {
+        toast("Функции блокировки и жалоб будут добавлены в следующем обновлении.");
+    });
 }
 
 function normalizeSearchNeedle(value) {
@@ -2152,6 +2332,125 @@ function openChatHistoryModal() {
     });
 }
 
+function openChatManageMenu() {
+    if (!state.currentChat) return;
+
+    const isGroup = state.currentChat.type === "group";
+    const canManage = state.myRole === "owner" || state.myRole === "admin";
+    const canAddStickers = isGroup && state.myRole === "owner";
+    const notificationsEnabled = isChatNotificationsEnabled(state.currentChat.id);
+
+    const actions = [
+        {
+            value: "profile",
+            label: "Ник и аватар в чате",
+            hint: "Настроить локальный профиль для этого чата",
+        },
+        ...(isGroup && canManage
+            ? [{
+                value: "add-member",
+                label: "Добавить участника",
+                hint: "Пригласить зарегистрированного пользователя",
+            }]
+            : []),
+        ...(isGroup && canManage
+            ? [{
+                value: "roles",
+                label: "Права и роли",
+                hint: "Управление ролями и ограничениями участников",
+            }]
+            : []),
+        ...(canAddStickers
+            ? [{
+                value: "stickers",
+                label: "Стикеры группы",
+                hint: "Загрузить стикер в общий пак чата",
+            }]
+            : []),
+        {
+            value: "notifications",
+            label: notificationsEnabled ? "Отключить уведомления" : "Включить уведомления",
+            hint: notificationsEnabled ? "Скрыть push-уведомления этого чата" : "Показывать push-уведомления этого чата",
+        },
+        ...(isGroup
+            ? [{
+                value: "rename",
+                label: "Переименовать группу",
+                hint: "Обновить название группы",
+            }]
+            : []),
+        ...(isGroup
+            ? [{
+                value: "leave",
+                label: "Покинуть группу",
+                hint: "Выйти из этого чата",
+                danger: true,
+            }]
+            : []),
+    ];
+
+    openInfoModal({
+        title: isGroup ? "Управление группой" : "Управление чатом",
+        html: `
+            <div class="chat-manage-menu">
+                ${actions.map((action) => `
+                    <button
+                        type="button"
+                        class="chat-manage-item ${action.danger ? "danger" : ""}"
+                        data-chat-manage-action="${action.value}"
+                    >
+                        <span class="chat-manage-copy">
+                            <strong>${escapeHtml(action.label)}</strong>
+                            <small>${escapeHtml(action.hint)}</small>
+                        </span>
+                        <span class="chat-manage-arrow" aria-hidden="true">›</span>
+                    </button>
+                `).join("")}
+            </div>
+        `,
+    });
+
+    for (const actionButton of dom.modalFields.querySelectorAll("[data-chat-manage-action]")) {
+        actionButton.addEventListener("click", () => {
+            const action = actionButton.dataset.chatManageAction;
+
+            switch (action) {
+                case "profile":
+                    closeModal(false);
+                    openMyChatProfile();
+                    return;
+                case "add-member":
+                    closeModal(false);
+                    openAddMemberModal();
+                    return;
+                case "roles":
+                    closeModal(false);
+                    openManageMemberModal();
+                    return;
+                case "stickers":
+                    closeModal(false);
+                    dom.stickerInput?.click();
+                    return;
+                case "notifications": {
+                    const nextEnabled = !isChatNotificationsEnabled(state.currentChatId);
+                    setChatNotificationsEnabled(state.currentChatId, nextEnabled);
+                    toast(nextEnabled ? "Уведомления чата включены." : "Уведомления чата отключены.");
+                    openChatManageMenu();
+                    return;
+                }
+                case "rename":
+                    toast("Переименование группы требует серверного API и будет добавлено отдельно.");
+                    return;
+                case "leave":
+                    toast("Выход из группы будет добавлен в отдельном обновлении.");
+                    return;
+                default:
+                    return;
+            }
+        });
+    }
+}
+
 async function markCurrentChatViewed(force = false) {
     if (!state.currentChatId || !state.me || !document.visibilityState || document.visibilityState === "hidden") {
         return;
@@ -2396,12 +2695,6 @@ function applyActiveChatFilter(chats) {
             return input.filter((chat) => chat.type === "private");
         case "group":
             return input.filter((chat) => chat.type === "group");
-        case "history":
-            return input.slice().sort((left, right) => {
-                const leftDate = left?.lastMessage?.createdAt ? new Date(left.lastMessage.createdAt).getTime() : 0;
-                const rightDate = right?.lastMessage?.createdAt ? new Date(right.lastMessage.createdAt).getTime() : 0;
-                return rightDate - leftDate;
-            });
         default:
             return input;
     }
@@ -2842,6 +3135,8 @@ function closeMobileChatView() {
     state.messages = [];
     state.members = [];
     state.chatStickers = [];
+    state.memberSearchQuery = "";
+    state.memberStatusFilter = "all";
     clearReplyTarget();
     clearSelectedAttachments();
     renderSelectedImage();
@@ -2890,6 +3185,8 @@ async function openChat(chatId) {
     state.members = chatData.members || [];
     state.chatStickers = chatData.stickers || [];
     state.messages = messagesData.messages || [];
+    state.memberSearchQuery = "";
+    state.memberStatusFilter = "all";
 
     renderChats();
     renderCurrentChat();
@@ -2988,6 +3285,8 @@ async function logout() {
     state.messages = [];
     state.members = [];
     state.chatStickers = [];
+    state.memberSearchQuery = "";
+    state.memberStatusFilter = "all";
     state.onlineUsers.clear();
     state.typingMap.clear();
     state.callStatusByChat.clear();
@@ -5854,10 +6153,14 @@ function bindUi() {
         scheduleSearch(dom.chatSearch.value);
     });
 
-    dom.chatSearch.addEventListener("pointerdown", () => {
+    dom.chatSearch.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
         if (isMobileViewport()) {
             setChatsDrawer(false);
         }
+    });
+    dom.chatSearch.addEventListener("click", (event) => {
+        event.stopPropagation();
     });
 
     dom.chatSearch.addEventListener("focus", () => {
@@ -5909,7 +6212,7 @@ function bindUi() {
         const filterButton = event.target.closest("[data-chat-filter]");
         if (filterButton) {
             const nextFilter = String(filterButton.dataset.chatFilter || "all");
-            state.chatFilter = ["all", "private", "group", "history"].includes(nextFilter)
+            state.chatFilter = ["all", "private", "group"].includes(nextFilter)
                 ? nextFilter
                 : "all";
             renderChats();
@@ -6306,6 +6609,7 @@ function bindUi() {
 async function init() {
     switchTab("login");
     state.recentEmojis = loadRecentEmojis();
+    state.chatNotificationMuted = loadChatNotificationPrefs();
     renderEmojiPanel();
     bindUi();
     repairTextTree(document.body);
@@ -6349,6 +6653,713 @@ async function init() {
         }
     } catch (error) {
         toast(error.message || "Не удалось загрузить чаты.");
+    }
+}
+
+/* === Final UX/mobile overrides (2026-03-06) === */
+function applyActiveChatFilter(chats) {
+    const input = Array.isArray(chats) ? chats : [];
+    if (state.chatFilter === "private") {
+        return input.filter((chat) => chat.type === "private");
+    }
+    if (state.chatFilter === "group") {
+        return input.filter((chat) => chat.type === "group");
+    }
+    return input;
+}
+
+function renderChats() {
+    if (!["all", "private", "group"].includes(state.chatFilter)) {
+        state.chatFilter = "all";
+    }
+
+    const chats = applyActiveChatFilter(filterChatsByQuery(state.searchQuery));
+    state.filteredChats = chats;
+    const filters = [
+        { value: "all", label: "Все" },
+        { value: "private", label: "Личные" },
+        { value: "group", label: "Группы" },
+    ];
+    const actionItems = `
+        <section class="chat-history-head">
+            <div class="chat-history-title-row">
+                <h3>Чаты</h3>
+                <button type="button" class="chat-create-fab" data-create="menu" aria-label="Создать чат">+</button>
+            </div>
+            <div class="chat-filter-tabs">
+                ${filters.map((filter) => `
+                    <button
+                        type="button"
+                        class="chat-filter-tab ${state.chatFilter === filter.value ? "active" : ""}"
+                        data-chat-filter="${filter.value}"
+                    >${filter.label}</button>
+                `).join("")}
+            </div>
+        </section>
+    `;
+
+    if (!chats.length) {
+        setInnerHtmlAndRepair(dom.chatList, `
+            ${actionItems}
+            <div class="chat-list-empty">
+                <p class="hint">Список пуст. Создайте личный чат или новую группу.</p>
+            </div>
+        `);
+        return;
+    }
+
+    const chatItems = chats.map((chat) => {
+        const active = chat.id === state.currentChatId ? "active" : "";
+        const preview = getChatPreviewText(chat);
+        const peerOnline = chat.type === "private" && chat.peerId ? isOnline(chat.peerId) : false;
+        const unreadCount = Math.max(0, Number(chat.unreadCount || 0));
+        const unreadBadge = unreadCount
+            ? `<span class="chat-unread-badge">${unreadCount > 99 ? "99+" : unreadCount}</span>`
+            : "";
+        const timestamp = chat.lastMessage?.createdAt ? formatTime(chat.lastMessage.createdAt) : "сейчас";
+
+        return `
+            <article class="chat-item ${active}" data-chat-id="${chat.id}">
+                <div class="chat-avatar">
+                    <img src="${escapeHtml(getChatAvatarUrl(chat))}" alt="${escapeHtml(getChatDisplayName(chat))}" />
+                    ${chat.type === "private" ? `<span class="chat-avatar-status ${peerOnline ? "online" : "offline"}"></span>` : ""}
+                </div>
+                <div class="chat-card-body">
+                    <h4>${escapeHtml(getChatDisplayName(chat))}</h4>
+                    <p class="chat-preview">${escapeHtml(preview)}</p>
+                </div>
+                <div class="chat-card-side">
+                    <span class="chat-time">${escapeHtml(timestamp)}</span>
+                    ${unreadBadge}
+                </div>
+            </article>
+        `;
+    }).join("");
+
+    setInnerHtmlAndRepair(dom.chatList, `
+        ${actionItems}
+        ${chatItems}
+    `);
+}
+
+function renderChatHeader() {
+    const chat = getCurrentChat();
+    if (!chat || !state.currentChat) {
+        dom.chatHeader.innerHTML = "";
+        return;
+    }
+
+    const isPrivateChat = chat.type === "private";
+    const privatePeer = isPrivateChat
+        ? state.members.find((member) => Number(member.id) !== Number(state.me?.id))
+        : null;
+    const callStatus = state.callStatusByChat.get(chat.id);
+    const inCurrentCall = callState.active && callState.chatId === chat.id;
+    const canUseCallAction = callStatus?.active
+        ? (Boolean(state.myPermissions?.canStartCalls) || inCurrentCall)
+        : Boolean(state.myPermissions?.canStartCalls);
+    const membersCount = Math.max(0, Number(state.members.length || 0));
+    const membersLabel = membersCount === 1 ? "1 участник" : `${membersCount} участников`;
+    const subtitle = isPrivateChat
+        ? (privatePeer && isOnline(privatePeer.id) ? "В сети" : "Не в сети")
+        : `Группа • ${membersLabel}`;
+    const actionLabel = inCurrentCall
+        ? "Открыть звонок"
+        : callStatus?.active
+            ? (isPrivateChat ? "Ответить" : "Войти")
+            : (isPrivateChat ? "Позвонить" : "Эфир");
+    const callIcon = inCurrentCall ? "📡" : (callStatus?.mode === "video" ? "📹" : "📞");
+    const avatarUrl = getChatAvatarUrl(chat, privatePeer);
+    const mobileBackButton = isMobileViewport()
+        ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">←</button>`
+        : "";
+    const infoLabel = isPrivateChat ? "Профиль" : "Участники";
+
+    setInnerHtmlAndRepair(dom.chatHeader, `
+        <div class="chat-header-main">
+            ${mobileBackButton}
+            <button id="chatIdentityBtn" class="chat-header-identity" type="button" aria-label="Открыть профиль">
+                <span class="chat-header-avatar">
+                    <img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(getChatDisplayName(chat))}" />
+                    ${isPrivateChat && privatePeer ? `<span class="chat-avatar-status ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>` : ""}
+                </span>
+                <span class="chat-title">
+                    <strong>${escapeHtml(getChatDisplayName(chat))}</strong>
+                    <small>${escapeHtml(subtitle)}</small>
+                </span>
+            </button>
+        </div>
+        <div class="header-actions">
+            <button id="chatSearchBtn" class="btn ghost chat-header-btn" type="button" aria-label="Поиск">
+                <span class="chat-header-btn-icon" aria-hidden="true">🔎</span>
+                <span class="chat-header-btn-label">Поиск</span>
+            </button>
+            <button
+                id="chatCallBtn"
+                class="btn ghost call-entry-btn chat-header-btn"
+                type="button"
+                ${!canUseCallAction ? "disabled" : ""}
+                aria-label="${escapeHtml(actionLabel)}"
+            >
+                <span class="chat-header-btn-icon" aria-hidden="true">${callIcon}</span>
+                <span class="chat-header-btn-label">${escapeHtml(actionLabel)}</span>
+            </button>
+            <button id="chatInfoBtn" class="btn ghost chat-header-btn" type="button" aria-label="${escapeHtml(infoLabel)}">
+                <span class="chat-header-btn-icon" aria-hidden="true">ⓘ</span>
+                <span class="chat-header-btn-label">${escapeHtml(infoLabel)}</span>
+            </button>
+            <button id="chatMenuBtn" class="btn ghost chat-header-btn" type="button" aria-label="Управление">
+                <span class="chat-header-btn-icon" aria-hidden="true">⋯</span>
+                <span class="chat-header-btn-label">Управление</span>
+            </button>
+        </div>
+    `);
+
+    document.getElementById("chatCallBtn")?.addEventListener("click", () => {
+        if (inCurrentCall) {
+            openCallOverlay();
+            refreshCallUi();
+            return;
+        }
+        if (callStatus?.active) {
+            joinExistingCall();
+            return;
+        }
+        startCall();
+    });
+
+    document.getElementById("chatSearchBtn")?.addEventListener("click", () => {
+        if (isMobileViewport()) {
+            openInfoModal({
+                title: "Поиск",
+                html: "<p class='hint'>Поиск доступен в верхней строке экрана списка чатов.</p>",
+            });
+            return;
+        }
+        dom.chatSearch?.focus();
+    });
+
+    document.getElementById("chatIdentityBtn")?.addEventListener("click", () => {
+        if (isPrivateChat && privatePeer) {
+            openUserProfileModal(privatePeer, { allowCall: Boolean(state.myPermissions?.canStartCalls) });
+            return;
+        }
+        if (window.innerWidth < 1280) {
+            setInfoDrawer(true);
+            return;
+        }
+        dom.infoPanel?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    document.getElementById("chatInfoBtn")?.addEventListener("click", () => {
+        if (window.innerWidth < 1280) {
+            const isOpen = document.body.classList.contains("info-drawer-open");
+            setInfoDrawer(!isOpen);
+            return;
+        }
+        dom.infoPanel?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    document.getElementById("chatMenuBtn")?.addEventListener("click", openChatManageMenu);
+    document.getElementById("mobileChatBackBtn")?.addEventListener("click", closeMobileChatView);
+}
+
+function renderMembers() {
+    if (!state.currentChat) {
+        dom.membersBox.innerHTML = "";
+        dom.chatActions.innerHTML = "";
+        return;
+    }
+
+    const filterValue = normalizeMemberStatusFilter(state.memberStatusFilter);
+    const queryNeedle = String(state.memberSearchQuery || "").trim().toLowerCase();
+    const onlineCount = state.members.filter((member) => isOnline(member.id)).length;
+    const offlineCount = Math.max(0, state.members.length - onlineCount);
+    const visibleMembers = state.members.filter((member) => {
+        const online = isOnline(member.id);
+        if (filterValue === "online" && !online) return false;
+        if (filterValue === "offline" && online) return false;
+        if (!queryNeedle) return true;
+
+        const name = String(member.displayName || "").toLowerCase();
+        const username = String(member.username || "").toLowerCase();
+        const role = String(member.role || "").toLowerCase();
+        return name.includes(queryNeedle) || username.includes(queryNeedle) || role.includes(queryNeedle);
+    });
+
+    const membersHtml = visibleMembers.map((member) => {
+        const roleBadge = member.role === "owner"
+            ? "<span class='badge'>Создатель</span>"
+            : member.role === "admin"
+                ? "<span class='badge'>Админ</span>"
+                : "";
+        const avatar = assetUrl(member.displayAvatar || member.avatarUrl);
+        const online = isOnline(member.id);
+        return `
+            <button
+                type="button"
+                class="member-item member-item-btn"
+                data-open-member-profile="${member.id}"
+                data-member-username="${escapeHtml(member.username)}"
+                data-member-name="${escapeHtml(member.displayName)}"
+                data-member-avatar="${escapeHtml(avatar)}"
+            >
+                <div class="member-avatar"><img src="${escapeHtml(avatar)}" alt="${escapeHtml(member.displayName)}" /></div>
+                <div class="member-copy">
+                    <div><strong>${escapeHtml(member.displayName)}</strong> ${roleBadge}</div>
+                    <div class="hint member-status-line">
+                        <span class="status-dot ${online ? "online" : "offline"}"></span>
+                        <span>@${escapeHtml(member.username)} • ${online ? "Онлайн" : "Оффлайн"}</span>
+                    </div>
+                </div>
+            </button>
+        `;
+    }).join("");
+
+    const stickerPackHtml = state.chatStickers.length
+        ? `
+            <div class="sticker-pack-grid">
+                ${state.chatStickers.map((sticker) => `
+                    <button type="button" class="sticker-pack-item" data-send-sticker-id="${sticker.id}" title="${escapeHtml(sticker.name || "Стикер")}">
+                        <img src="${escapeHtml(assetUrl(sticker.imageUrl))}" alt="${escapeHtml(sticker.name || "Стикер")}" />
+                    </button>
+                `).join("")}
+            </div>
+        `
+        : "<p class='hint'>Стикеров пока нет.</p>";
+
+    setInnerHtmlAndRepair(dom.membersBox, `
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Участники</h3>
+                <span>${state.members.length}</span>
+            </div>
+            <div class="members-toolbar">
+                <input
+                    id="membersSearchInput"
+                    class="members-search"
+                    type="search"
+                    placeholder="Поиск участников"
+                    value="${escapeHtml(state.memberSearchQuery || "")}"
+                />
+                <div class="member-filter-chips">
+                    <button type="button" class="member-filter-chip ${filterValue === "all" ? "active" : ""}" data-members-filter="all">Все (${state.members.length})</button>
+                    <button type="button" class="member-filter-chip ${filterValue === "online" ? "active" : ""}" data-members-filter="online">Онлайн (${onlineCount})</button>
+                    <button type="button" class="member-filter-chip ${filterValue === "offline" ? "active" : ""}" data-members-filter="offline">Оффлайн (${offlineCount})</button>
+                </div>
+            </div>
+            <div class="members-list">${membersHtml || "<p class='hint'>Нет участников по выбранному фильтру.</p>"}</div>
+        </section>
+        <section class="sidebar-section">
+            <div class="sidebar-section-head">
+                <h3>Стикеры</h3>
+                <span>${state.chatStickers.length}</span>
+            </div>
+            ${stickerPackHtml}
+        </section>
+    `);
+
+    setInnerHtmlAndRepair(dom.chatActions, `
+        <section class="sidebar-section sidebar-action-section">
+            <div class="sidebar-section-head">
+                <h3>Управление</h3>
+            </div>
+            <div class="chat-action-list">
+                <button id="chatManageBtn" type="button" class="chat-action-row">
+                    <span>Открыть меню управления</span><i aria-hidden="true">›</i>
+                </button>
+            </div>
+        </section>
+    `);
+
+    document.getElementById("chatManageBtn")?.addEventListener("click", openChatManageMenu);
+    document.getElementById("membersSearchInput")?.addEventListener("input", (event) => {
+        state.memberSearchQuery = String(event.target.value || "");
+        renderMembers();
+    });
+
+    for (const filterButton of dom.membersBox.querySelectorAll("[data-members-filter]")) {
+        filterButton.addEventListener("click", () => {
+            state.memberStatusFilter = normalizeMemberStatusFilter(filterButton.dataset.membersFilter || "all");
+            renderMembers();
+        });
+    }
+
+    for (const profileButton of dom.membersBox.querySelectorAll("[data-open-member-profile]")) {
+        profileButton.addEventListener("click", () => {
+            openUserProfileModal({
+                id: Number(profileButton.dataset.openMemberProfile),
+                username: profileButton.dataset.memberUsername,
+                displayName: profileButton.dataset.memberName,
+                avatarUrl: profileButton.dataset.memberAvatar,
+            });
+        });
+    }
+
+    for (const stickerButton of dom.membersBox.querySelectorAll("[data-send-sticker-id]")) {
+        stickerButton.addEventListener("click", () => {
+            sendStickerFromPack(stickerButton.dataset.sendStickerId).catch((error) => {
+                toast(error.message || "Не удалось отправить стикер.");
+            });
+        });
+    }
+}
+
+function findPendingLocalMessageMatch(serverMessage) {
+    if (!serverMessage || Number(serverMessage.sender?.id) !== Number(state.me?.id)) {
+        return -1;
+    }
+
+    const chatId = Number(serverMessage.chatId || 0);
+    if (!chatId) return -1;
+
+    const serverType = String(serverMessage.type || "text");
+    const serverText = String(serverMessage.text || "").trim();
+    const serverReplyId = Number(serverMessage.replyTo?.id || serverMessage.replyToMessageId || 0);
+    const serverCreatedAt = new Date(serverMessage.createdAt || Date.now()).getTime();
+
+    return state.messages.findIndex((message) => {
+        if (!message || !message.localState) return false;
+        if (!["sending", "error"].includes(message.localState)) return false;
+        if (Number(message.chatId) !== chatId) return false;
+        if (Number(message.sender?.id) !== Number(state.me?.id)) return false;
+        if (String(message.type || "text") !== serverType) return false;
+
+        const localText = String(message.text || "").trim();
+        if (localText !== serverText) return false;
+
+        const localReplyId = Number(message.replyTo?.id || message.localDraft?.replyToMessageId || 0);
+        if (serverReplyId && localReplyId && localReplyId !== serverReplyId) {
+            return false;
+        }
+
+        const localCreatedAt = new Date(message.createdAt || Date.now()).getTime();
+        if (Number.isFinite(serverCreatedAt) && Number.isFinite(localCreatedAt)) {
+            return Math.abs(serverCreatedAt - localCreatedAt) < 120000;
+        }
+        return true;
+    });
+}
+
+function upsertMessage(message) {
+    if (!message?.id) return;
+
+    const directIndex = state.messages.findIndex((item) => Number(item.id) === Number(message.id));
+    if (directIndex >= 0) {
+        state.messages[directIndex] = {
+            ...message,
+            localState: "",
+            localDraft: null,
+        };
+        if (state.replyToMessage?.id && Number(state.replyToMessage.id) === Number(message.id)) {
+            state.replyToMessage = state.messages[directIndex];
+        }
+        return;
+    }
+
+    const pendingIndex = findPendingLocalMessageMatch(message);
+    if (pendingIndex >= 0) {
+        state.messages[pendingIndex] = {
+            ...message,
+            localState: "",
+            localDraft: null,
+        };
+        return;
+    }
+
+    state.messages.push(message);
+}
+
+function renderMessageViewsMeta(message) {
+    if (message?.localState === "sending") {
+        return `<button type="button" class="msg-view-pill" disabled>⌛ Отправляется</button>`;
+    }
+    if (message?.localState === "error") {
+        return `<button type="button" class="msg-view-pill danger" data-retry-local-message-id="${message.id}">Ошибка • Повторить</button>`;
+    }
+
+    if (!message?.sender || Number(message.sender.id) !== Number(state.me?.id)) {
+        return "";
+    }
+
+    const views = Array.isArray(message.views) ? message.views : [];
+    if (!views.length) {
+        return `<button type="button" class="msg-view-pill" disabled>Не просмотрено</button>`;
+    }
+
+    const lastView = views[views.length - 1];
+    return `
+        <button type="button" class="msg-view-pill" data-open-views="${message.id}">
+            ${views.length} просмотр${views.length > 1 ? "а" : ""} • ${formatTime(lastView.viewedAt)}
+        </button>
+    `;
+}
+
+function renderMessages() {
+    if (!state.messages.length) {
+        setInnerHtmlAndRepair(dom.messages, "<p class='hint'>Пока нет сообщений</p>");
+        return;
+    }
+
+    const stickToBottom = dom.messages.scrollHeight <= dom.messages.clientHeight + 4
+        || Math.abs(dom.messages.scrollHeight - dom.messages.scrollTop - dom.messages.clientHeight) < 96;
+
+    setInnerHtmlAndRepair(dom.messages, state.messages.map((message) => {
+        const isSelf = message.sender && state.me && Number(message.sender.id) === Number(state.me.id);
+        const classes = ["msg"];
+        if (isSelf) classes.push("self");
+        if (message.type === "system") classes.push("system");
+        if (message.localState === "sending") classes.push("pending");
+        if (message.localState === "error") classes.push("failed");
+
+        const senderName = message.sender?.displayName || message.sender?.username || "Пользователь";
+        const senderAvatar = assetUrl(message.sender?.avatarUrl || defaultAvatar(message.sender?.username || senderName));
+        const senderHeader = message.sender
+            ? `
+                <button
+                    type="button"
+                    class="msg-author-btn"
+                    data-open-profile-user-id="${message.sender.id}"
+                    data-open-profile-username="${escapeHtml(message.sender.username || "")}"
+                    data-open-profile-name="${escapeHtml(senderName)}"
+                    data-open-profile-avatar="${escapeHtml(senderAvatar)}"
+                >
+                    <img src="${escapeHtml(senderAvatar)}" alt="${escapeHtml(senderName)}" />
+                    <span>${escapeHtml(senderName)}</span>
+                </button>
+            `
+            : "<span>Система</span>";
+        const header = `<div class="msg-head">${senderHeader}<span>${formatTime(message.createdAt)}</span></div>`;
+        const reply = renderReplyCard(message.replyTo);
+        const isDeleted = Boolean(message.isDeleted || message.type === "deleted");
+
+        const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
+        const image = !isDeleted && message.type === "image" && mediaUrl
+            ? `<div class="msg-media-card"><img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" /></div>`
+            : "";
+        const sticker = !isDeleted && message.type === "sticker" && mediaUrl
+            ? `<div class="msg-sticker-shell"><img class="msg-sticker" src="${escapeHtml(mediaUrl)}" alt="sticker" /></div>`
+            : "";
+        const audio = !isDeleted && message.type === "audio" ? renderVoiceMessagePlayer(message) : "";
+        const video = !isDeleted && message.type === "video" && mediaUrl ? renderVideoMessagePlayer(message) : "";
+        const text = isDeleted
+            ? "<div class='msg-deleted-copy'>Сообщение удалено</div>"
+            : message.text
+                ? `<div>${escapeHtml(message.text)}</div>`
+                : "";
+
+        const canDelete = canDeleteMessage(message) && !message.localState;
+        const actions = message.type !== "system"
+            ? `
+                <div class="msg-actions">
+                    <button type="button" class="msg-action-btn" data-reply-message-id="${message.id}" ${isDeleted || message.localState === "sending" ? "disabled" : ""}>Ответить</button>
+                    ${canDelete ? `<button type="button" class="msg-action-btn danger" data-delete-message-id="${message.id}">Удалить</button>` : ""}
+                </div>
+            `
+            : "";
+        const viewsMeta = renderMessageViewsMeta(message);
+
+        return `<article class="${classes.join(" ")}" data-message-id="${message.id}">${header}${reply}${image}${sticker}${audio}${video}${text}${actions}${viewsMeta}</article>`;
+    }).join(""));
+
+    for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
+        syncVoiceNotePlayer(player);
+    }
+
+    if (stickToBottom) {
+        dom.messages.scrollTop = dom.messages.scrollHeight;
+    }
+}
+
+function buildComposerMessageDraft() {
+    const text = dom.messageInput.value.trim();
+    const attachment = getSelectedAttachment();
+    if (!text && !attachment) {
+        return null;
+    }
+
+    return {
+        chatId: Number(state.currentChatId),
+        text,
+        replyTo: state.replyToMessage || null,
+        replyToMessageId: state.replyToMessage?.id || null,
+        attachment: attachment
+            ? {
+                kind: attachment.kind,
+                field: attachment.field,
+                endpoint: attachment.endpoint,
+                label: attachment.label,
+                meta: attachment.meta || {},
+                file: attachment.file,
+                previewUrl: attachment.previewUrl,
+            }
+            : null,
+    };
+}
+
+function createOptimisticMessageFromDraft(draft) {
+    state.localMessageSeq = Number(state.localMessageSeq || 0) + 1;
+    const localId = -1 * (Date.now() * 100 + state.localMessageSeq);
+    const nowIso = new Date().toISOString();
+    const meMember = state.members.find((member) => Number(member.id) === Number(state.me?.id));
+    const senderName = meMember?.displayName || state.me?.username || "you";
+    const senderAvatar = meMember?.displayAvatar || state.me?.avatarUrl || defaultAvatar(state.me?.username || "you");
+
+    return {
+        id: localId,
+        chatId: draft.chatId,
+        type: draft.attachment?.kind || "text",
+        text: draft.text,
+        createdAt: nowIso,
+        sender: {
+            id: state.me?.id,
+            username: state.me?.username || "you",
+            displayName: senderName,
+            avatarUrl: senderAvatar,
+        },
+        replyTo: draft.replyTo || null,
+        mediaUrl: draft.attachment?.previewUrl || "",
+        imageUrl: draft.attachment?.previewUrl || "",
+        views: [],
+        localState: "sending",
+        localDraft: draft,
+    };
+}
+
+async function dispatchMessageDraft(draft) {
+    if (draft.attachment) {
+        return sendAttachmentMessage(draft.chatId, draft.attachment, draft.text);
+    }
+
+    return api(`/api/chats/${draft.chatId}/messages`, {
+        method: "POST",
+        body: {
+            text: draft.text,
+            replyToMessageId: draft.replyToMessageId || null,
+        },
+    });
+}
+
+function setLocalMessageState(localMessageId, nextState) {
+    const index = state.messages.findIndex((message) => Number(message.id) === Number(localMessageId));
+    if (index < 0) return;
+    state.messages[index] = {
+        ...state.messages[index],
+        ...nextState,
+    };
+}
+
+async function retryLocalMessage(localMessageId) {
+    const message = state.messages.find((item) => Number(item.id) === Number(localMessageId));
+    if (!message?.localDraft) {
+        toast("Черновик для повторной отправки не найден.");
+        return;
+    }
+
+    setLocalMessageState(localMessageId, { localState: "sending" });
+    renderMessages();
+
+    try {
+        const response = await dispatchMessageDraft(message.localDraft);
+        if (response?.message) {
+            upsertMessage(response.message);
+            updateChatWithMessage(response.message);
+        }
+        renderMessages();
+    } catch (error) {
+        setLocalMessageState(localMessageId, { localState: "error" });
+        renderMessages();
+        toast(error.message || "Не удалось повторно отправить сообщение.");
+    }
+}
+
+async function sendMessage(event) {
+    event.preventDefault();
+    if (!state.currentChatId) return;
+    if (!state.myPermissions?.canSend) {
+        toast("У вас нет прав на отправку сообщений в этом чате.");
+        return;
+    }
+    if (state.recording.kind) {
+        toast("Сначала завершите запись.");
+        return;
+    }
+
+    const draft = buildComposerMessageDraft();
+    if (!draft) return;
+
+    if (draft.attachment && !state.myPermissions?.canSendMedia) {
+        toast("У вас нет прав на отправку медиа в этом чате.");
+        return;
+    }
+
+    const optimisticMessage = createOptimisticMessageFromDraft(draft);
+
+    dom.messageInput.value = "";
+    clearSelectedAttachments();
+    clearReplyTarget();
+    renderSelectedImage();
+    upsertMessage(optimisticMessage);
+    updateChatWithMessage(optimisticMessage);
+    renderMessages();
+
+    if (state.socket) {
+        state.socket.emit("typing", { chatId: state.currentChatId, isTyping: false });
+    }
+
+    try {
+        const response = await dispatchMessageDraft(draft);
+        if (response?.message) {
+            upsertMessage(response.message);
+            updateChatWithMessage(response.message);
+        } else {
+            setLocalMessageState(optimisticMessage.id, { localState: "error" });
+        }
+        renderMessages();
+    } catch (error) {
+        setLocalMessageState(optimisticMessage.id, { localState: "error" });
+        renderMessages();
+        toast(error.message || "Не удалось отправить сообщение.");
+    }
+}
+
+function handleMessageActionClick(event) {
+    const profileButton = event.target.closest("[data-open-profile-user-id]");
+    if (profileButton) {
+        openUserProfileModal({
+            id: Number(profileButton.dataset.openProfileUserId),
+            username: profileButton.dataset.openProfileUsername,
+            displayName: profileButton.dataset.openProfileName,
+            avatarUrl: profileButton.dataset.openProfileAvatar,
+        });
+        return;
+    }
+
+    const retryButton = event.target.closest("[data-retry-local-message-id]");
+    if (retryButton) {
+        retryLocalMessage(retryButton.dataset.retryLocalMessageId).catch(() => {
+            // ignore
+        });
+        return;
+    }
+
+    const viewsButton = event.target.closest("[data-open-views]");
+    if (viewsButton) {
+        openViewsModal(viewsButton.dataset.openViews);
+        return;
+    }
+
+    const replyButton = event.target.closest("[data-reply-message-id]");
+    if (replyButton) {
+        setReplyTarget(replyButton.dataset.replyMessageId);
+        return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-message-id]");
+    if (deleteButton) {
+        deleteMessage(deleteButton.dataset.deleteMessageId).catch(() => {
+            // ignore
+        });
     }
 }
 
