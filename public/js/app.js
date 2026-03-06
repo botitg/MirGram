@@ -273,6 +273,7 @@ const state = {
     virtualKeyboardHeight: 0,
     virtualKeyboardOverlay: false,
     localMessageSeq: 0,
+    openChatRequestSeq: 0,
     chatNotificationMuted: {},
     recording: {
         chatId: null,
@@ -3188,7 +3189,8 @@ async function loadChats() {
     const data = await api("/api/chats");
     state.chats = data.chats || [];
 
-    if (state.currentChatId && !state.chats.some((chat) => chat.id === state.currentChatId)) {
+    if (state.currentChatId && !state.chats.some((chat) => Number(chat.id) === Number(state.currentChatId))) {
+        state.openChatRequestSeq = Number(state.openChatRequestSeq || 0) + 1;
         state.currentChatId = null;
         state.currentChat = null;
         state.messages = [];
@@ -3213,6 +3215,7 @@ function closeMobileChatView() {
     if (!isMobileViewport()) return;
 
     dom.messageInput?.blur();
+    state.openChatRequestSeq = Number(state.openChatRequestSeq || 0) + 1;
     state.currentChatId = null;
     state.currentChat = null;
     state.messages = [];
@@ -7581,6 +7584,122 @@ function handleMessageActionClick(event) {
         });
     }
 }
+
+openChat = async function openChatStable(chatId) {
+    const requestedChatId = Number(chatId || 0);
+    if (!requestedChatId) return;
+
+    const requestSeq = Number(state.openChatRequestSeq || 0) + 1;
+    state.openChatRequestSeq = requestSeq;
+    const isStaleRequest = () => (
+        Number(state.openChatRequestSeq || 0) !== requestSeq
+        || Number(state.currentChatId || 0) !== requestedChatId
+    );
+
+    if (state.recording.kind && requestedChatId !== Number(state.currentChatId)) {
+        await stopRecording({ sendAfterStop: false, cancel: true });
+    }
+
+    if (requestedChatId !== Number(state.currentChatId)) {
+        clearReplyTarget();
+        clearSelectedAttachments();
+        renderSelectedImage();
+    }
+
+    state.currentChatId = requestedChatId;
+    state.currentChat = state.chats.find((chat) => Number(chat.id) === requestedChatId) || null;
+    clearSearchResults();
+
+    if (!state.currentChat) {
+        renderCurrentChat();
+        return;
+    }
+
+    if (state.socket) {
+        state.socket.emit("chat:join", { chatId: requestedChatId });
+    }
+
+    let chatData = null;
+    let messagesData = null;
+
+    try {
+        [chatData, messagesData] = await Promise.all([
+            api(`/api/chats/${requestedChatId}`),
+            api(`/api/chats/${requestedChatId}/messages?limit=120`),
+        ]);
+    } catch (error) {
+        toast(error?.message || "Не удалось загрузить чат.");
+    }
+    if (isStaleRequest()) return;
+
+    if (!chatData) {
+        try {
+            chatData = await api(`/api/chats/${requestedChatId}`);
+        } catch {
+            // keep local chat snapshot
+        }
+    }
+    if (isStaleRequest()) return;
+
+    if (!messagesData) {
+        try {
+            messagesData = await api(`/api/chats/${requestedChatId}/messages?limit=200`);
+        } catch {
+            // keep fallback below
+        }
+    }
+    if (isStaleRequest()) return;
+
+    if (chatData?.chat && typeof chatData.chat === "object") {
+        state.currentChat = {
+            ...state.currentChat,
+            ...chatData.chat,
+        };
+    }
+
+    state.myRole = chatData?.myRole ?? state.myRole ?? null;
+    state.myPermissions = chatData?.myPermissions || state.myPermissions || {
+        canSend: false,
+        canSendMedia: false,
+        canStartCalls: false,
+    };
+    state.members = Array.isArray(chatData?.members) ? chatData.members : [];
+    state.chatStickers = Array.isArray(chatData?.stickers) ? chatData.stickers : [];
+    state.messages = extractMessagesFromPayload(messagesData);
+    if (!state.messages.length && state.currentChat?.lastMessage) {
+        state.messages = [state.currentChat.lastMessage];
+    }
+    state.memberSearchQuery = "";
+    state.memberStatusFilter = "all";
+
+    if (
+        isMobileViewport()
+        && !state.messages.length
+        && state.currentChat?.lastMessage
+    ) {
+        try {
+            const retryMessages = await api(`/api/chats/${requestedChatId}/messages?limit=200`);
+            if (!isStaleRequest()) {
+                state.messages = extractMessagesFromPayload(retryMessages);
+            }
+        } catch {
+            // keep existing state
+        }
+    }
+    if (isStaleRequest()) return;
+
+    renderChats();
+    renderCurrentChat();
+    ensureMobileMessagesVisible(requestedChatId).catch(() => {
+        // ignore
+    });
+    markCurrentChatViewed(true).catch(() => {
+        // ignore
+    });
+
+    setChatsDrawer(false);
+    scheduleViewportMetrics();
+};
 
 renderMessages = function renderMessagesSafe() {
     if (!dom.messages) return;
