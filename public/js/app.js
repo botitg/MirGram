@@ -3104,6 +3104,10 @@ function renderCurrentChat() {
     dom.emptyState.classList.add("hidden");
     dom.chatView.classList.remove("hidden");
 
+    if (!state.messages.length && chat.lastMessage) {
+        state.messages = [chat.lastMessage];
+    }
+
     renderChatHeader();
     renderTypingBar();
     renderMessages();
