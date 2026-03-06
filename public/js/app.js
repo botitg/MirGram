@@ -928,20 +928,32 @@ function setInnerHtmlAndRepair(element, markup) {
 
 function formatTime(value) {
     if (!value) return "";
-    return new Date(value).toLocaleTimeString("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    try {
+        return date.toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    } catch {
+        return "";
+    }
 }
 
 function formatDateTime(value) {
     if (!value) return "";
-    return new Date(value).toLocaleString("ru-RU", {
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    try {
+        return date.toLocaleString("ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    } catch {
+        return "";
+    }
 }
 
 function formatMediaTime(totalSeconds) {
@@ -1511,7 +1523,9 @@ function handleModalSubmit(event) {
 }
 
 function getCurrentChat() {
-    return state.chats.find((chat) => chat.id === state.currentChatId) || null;
+    const currentChatId = Number(state.currentChatId || 0);
+    if (!currentChatId) return null;
+    return state.chats.find((chat) => Number(chat.id) === currentChatId) || null;
 }
 
 function getChatDisplayName(chat) {
@@ -3148,6 +3162,26 @@ function closeMobileChatView() {
     scheduleViewportMetrics();
 }
 
+function extractMessagesFromPayload(payload) {
+    if (Array.isArray(payload)) {
+        return payload.filter((item) => item && typeof item === "object");
+    }
+
+    if (payload && typeof payload === "object") {
+        if (Array.isArray(payload.messages)) {
+            return payload.messages.filter((item) => item && typeof item === "object");
+        }
+        if (Array.isArray(payload.items)) {
+            return payload.items.filter((item) => item && typeof item === "object");
+        }
+        if (Array.isArray(payload.data?.messages)) {
+            return payload.data.messages.filter((item) => item && typeof item === "object");
+        }
+    }
+
+    return [];
+}
+
 async function openChat(chatId) {
     if (state.recording.kind && Number(chatId) !== Number(state.currentChatId)) {
         await stopRecording({ sendAfterStop: false, cancel: true });
@@ -3159,7 +3193,7 @@ async function openChat(chatId) {
     }
 
     state.currentChatId = Number(chatId);
-    state.currentChat = state.chats.find((chat) => chat.id === state.currentChatId) || null;
+    state.currentChat = state.chats.find((chat) => Number(chat.id) === state.currentChatId) || null;
     clearSearchResults();
 
     if (!state.currentChat) {
@@ -3171,20 +3205,49 @@ async function openChat(chatId) {
         state.socket.emit("chat:join", { chatId: state.currentChatId });
     }
 
-    const [chatData, messagesData] = await Promise.all([
-        api(`/api/chats/${state.currentChatId}`),
-        api(`/api/chats/${state.currentChatId}/messages?limit=80`),
-    ]);
+    let chatData = null;
+    let messagesData = null;
 
-    state.currentChat = {
-        ...state.currentChat,
-        ...chatData.chat,
+    try {
+        [chatData, messagesData] = await Promise.all([
+            api(`/api/chats/${state.currentChatId}`),
+            api(`/api/chats/${state.currentChatId}/messages?limit=120`),
+        ]);
+    } catch (error) {
+        toast(error?.message || "Не удалось загрузить чат.");
+    }
+
+    if (!chatData) {
+        try {
+            chatData = await api(`/api/chats/${state.currentChatId}`);
+        } catch {
+            // keep previous chat snapshot
+        }
+    }
+
+    if (!messagesData) {
+        try {
+            messagesData = await api(`/api/chats/${state.currentChatId}/messages?limit=200`);
+        } catch {
+            // keep empty messages fallback
+        }
+    }
+
+    if (chatData?.chat && typeof chatData.chat === "object") {
+        state.currentChat = {
+            ...state.currentChat,
+            ...chatData.chat,
+        };
+    }
+    state.myRole = chatData?.myRole ?? state.myRole ?? null;
+    state.myPermissions = chatData?.myPermissions || state.myPermissions || {
+        canSend: false,
+        canSendMedia: false,
+        canStartCalls: false,
     };
-    state.myRole = chatData.myRole;
-    state.myPermissions = chatData.myPermissions;
-    state.members = chatData.members || [];
-    state.chatStickers = chatData.stickers || [];
-    state.messages = messagesData.messages || [];
+    state.members = Array.isArray(chatData?.members) ? chatData.members : [];
+    state.chatStickers = Array.isArray(chatData?.stickers) ? chatData.stickers : [];
+    state.messages = extractMessagesFromPayload(messagesData);
     state.memberSearchQuery = "";
     state.memberStatusFilter = "all";
 
@@ -3195,7 +3258,7 @@ async function openChat(chatId) {
     ) {
         try {
             const retryMessages = await api(`/api/chats/${state.currentChatId}/messages?limit=200`);
-            state.messages = retryMessages.messages || [];
+            state.messages = extractMessagesFromPayload(retryMessages);
         } catch {
             // keep initial payload
         }
@@ -7375,5 +7438,105 @@ function handleMessageActionClick(event) {
         });
     }
 }
+
+renderMessages = function renderMessagesSafe() {
+    if (!dom.messages) return;
+
+    const sourceMessages = Array.isArray(state.messages)
+        ? state.messages.filter((item) => item && typeof item === "object")
+        : [];
+
+    if (!sourceMessages.length) {
+        setInnerHtmlAndRepair(dom.messages, "<p class='hint'>No messages yet</p>");
+        return;
+    }
+
+    const stickToBottom = dom.messages.scrollHeight <= dom.messages.clientHeight + 4
+        || Math.abs(dom.messages.scrollHeight - dom.messages.scrollTop - dom.messages.clientHeight) < 96;
+
+    const rendered = [];
+
+    for (let index = 0; index < sourceMessages.length; index += 1) {
+        const message = sourceMessages[index];
+        try {
+            const messageType = String(message.type || "text").toLowerCase();
+            const isSelf = Boolean(message.sender && state.me && Number(message.sender.id) === Number(state.me.id));
+            const classes = ["msg"];
+            if (isSelf) classes.push("self");
+            if (messageType === "system") classes.push("system");
+            if (message.localState === "sending") classes.push("pending");
+            if (message.localState === "error") classes.push("failed");
+
+            const senderName = String(message.sender?.displayName || message.sender?.username || "User");
+            const senderAvatar = assetUrl(message.sender?.avatarUrl || defaultAvatar(message.sender?.username || senderName));
+            const senderHeader = message.sender
+                ? `
+                    <button
+                        type="button"
+                        class="msg-author-btn"
+                        data-open-profile-user-id="${escapeHtml(String(message.sender.id || ""))}"
+                        data-open-profile-username="${escapeHtml(message.sender.username || "")}"
+                        data-open-profile-name="${escapeHtml(senderName)}"
+                        data-open-profile-avatar="${escapeHtml(senderAvatar)}"
+                    >
+                        <img src="${escapeHtml(senderAvatar)}" alt="${escapeHtml(senderName)}" />
+                        <span>${escapeHtml(senderName)}</span>
+                    </button>
+                `
+                : "<span>System</span>";
+            const header = `<div class="msg-head">${senderHeader}<span>${formatTime(message.createdAt)}</span></div>`;
+            const reply = renderReplyCard(message.replyTo);
+            const isDeleted = Boolean(message.isDeleted || messageType === "deleted");
+
+            const mediaUrl = assetUrl(message.mediaUrl || message.imageUrl || "");
+            const image = !isDeleted && messageType === "image" && mediaUrl
+                ? `<div class="msg-media-card"><img class="msg-image" src="${escapeHtml(mediaUrl)}" alt="photo" /></div>`
+                : "";
+            const sticker = !isDeleted && messageType === "sticker" && mediaUrl
+                ? `<div class="msg-sticker-shell"><img class="msg-sticker" src="${escapeHtml(mediaUrl)}" alt="sticker" /></div>`
+                : "";
+            const audio = !isDeleted && messageType === "audio" ? renderVoiceMessagePlayer(message) : "";
+            const video = !isDeleted && messageType === "video" && mediaUrl ? renderVideoMessagePlayer(message) : "";
+            const text = isDeleted
+                ? "<div class='msg-deleted-copy'>Message removed</div>"
+                : message.text
+                    ? `<div>${escapeHtml(String(message.text))}</div>`
+                    : "";
+
+            const messageId = message.id == null ? "" : String(message.id);
+            const canDelete = canDeleteMessage(message) && !message.localState && Boolean(messageId);
+            const canReply = Boolean(messageId) && !isDeleted && message.localState !== "sending";
+            const actions = messageType !== "system"
+                ? `
+                    <div class="msg-actions">
+                        <button type="button" class="msg-action-btn" data-reply-message-id="${escapeHtml(messageId)}" ${canReply ? "" : "disabled"}>Reply</button>
+                        ${canDelete ? `<button type="button" class="msg-action-btn danger" data-delete-message-id="${escapeHtml(messageId)}">Delete</button>` : ""}
+                    </div>
+                `
+                : "";
+            const viewsMeta = renderMessageViewsMeta(message);
+            const articleId = messageId || `local-${index}`;
+
+            rendered.push(`<article class="${classes.join(" ")}" data-message-id="${escapeHtml(articleId)}">${header}${reply}${image}${sticker}${audio}${video}${text}${actions}${viewsMeta}</article>`);
+        } catch (error) {
+            console.warn("Skip broken message render", error);
+        }
+    }
+
+    if (!rendered.length) {
+        setInnerHtmlAndRepair(dom.messages, "<p class='hint'>No visible messages</p>");
+        return;
+    }
+
+    setInnerHtmlAndRepair(dom.messages, rendered.join(""));
+
+    for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
+        syncVoiceNotePlayer(player);
+    }
+
+    if (stickToBottom) {
+        dom.messages.scrollTop = dom.messages.scrollHeight;
+    }
+};
 
 init();
