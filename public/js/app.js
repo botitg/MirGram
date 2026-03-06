@@ -677,6 +677,73 @@ function hasCurrentChatSelection() {
     return Boolean(state.currentChatId && state.currentChat);
 }
 
+function enforceMobileMessageVisibility() {
+    if (!dom.chatView || !dom.messages || !dom.composer) return;
+
+    if (!isMobileViewport() || !hasCurrentChatSelection()) {
+        dom.chatView.style.removeProperty("display");
+        dom.chatView.style.removeProperty("flex-direction");
+        dom.chatView.style.removeProperty("flex");
+        dom.chatView.style.removeProperty("min-height");
+
+        dom.messages.style.removeProperty("display");
+        dom.messages.style.removeProperty("flex-direction");
+        dom.messages.style.removeProperty("flex");
+        dom.messages.style.removeProperty("min-height");
+        dom.messages.style.removeProperty("overflow-y");
+        dom.messages.style.removeProperty("visibility");
+        dom.messages.style.removeProperty("opacity");
+        return;
+    }
+
+    dom.chatView.style.setProperty("display", "flex", "important");
+    dom.chatView.style.setProperty("flex-direction", "column", "important");
+    dom.chatView.style.setProperty("flex", "1 1 auto", "important");
+    dom.chatView.style.setProperty("min-height", "0", "important");
+
+    dom.messages.style.setProperty("display", "flex", "important");
+    dom.messages.style.setProperty("flex-direction", "column", "important");
+    dom.messages.style.setProperty("flex", "1 1 auto", "important");
+    dom.messages.style.setProperty("min-height", "140px", "important");
+    dom.messages.style.setProperty("overflow-y", "auto", "important");
+    dom.messages.style.setProperty("visibility", "visible", "important");
+    dom.messages.style.setProperty("opacity", "1", "important");
+
+    for (const child of dom.messages.children) {
+        child.style.setProperty("display", "block", "important");
+        child.style.setProperty("visibility", "visible", "important");
+        child.style.setProperty("opacity", "1", "important");
+    }
+
+    const hasStateMessages = Array.isArray(state.messages) && state.messages.length > 0;
+    const hasRenderedMessages = dom.messages.querySelector(".msg");
+    if (!hasStateMessages || hasRenderedMessages) {
+        return;
+    }
+
+    const fallbackMarkup = state.messages
+        .filter((item) => item && typeof item === "object")
+        .map((message) => {
+            const isSelf = Boolean(message.sender && state.me && Number(message.sender.id) === Number(state.me.id));
+            const senderName = escapeHtml(String(message.sender?.displayName || message.sender?.username || "User"));
+            const body = message.text
+                ? escapeHtml(String(message.text))
+                : escapeHtml(getMessageTypeLabel(message));
+            const time = escapeHtml(formatTime(message.createdAt));
+            return `
+                <article class="msg ${isSelf ? "self" : ""}" style="display:block;visibility:visible;opacity:1;">
+                    <div class="msg-head"><span>${senderName}</span><span>${time}</span></div>
+                    <div>${body}</div>
+                </article>
+            `;
+        })
+        .join("");
+
+    if (fallbackMarkup) {
+        setInnerHtmlAndRepair(dom.messages, fallbackMarkup);
+    }
+}
+
 function syncMobileLayoutState() {
     const mobile = isMobileViewport();
     const chatActive = mobile && hasCurrentChatSelection();
@@ -688,6 +755,8 @@ function syncMobileLayoutState() {
     if (window.innerWidth >= 1280) {
         setInfoDrawer(false, { force: true });
     }
+
+    enforceMobileMessageVisibility();
 }
 
 function setInfoDrawer(open, { force = false } = {}) {
@@ -7533,6 +7602,8 @@ renderMessages = function renderMessagesSafe() {
     for (const player of dom.messages.querySelectorAll("[data-audio-player]")) {
         syncVoiceNotePlayer(player);
     }
+
+    enforceMobileMessageVisibility();
 
     if (stickToBottom) {
         dom.messages.scrollTop = dom.messages.scrollHeight;
