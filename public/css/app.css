@@ -7206,6 +7206,12 @@ body.keyboard-open .topbar {
         min-height: 0 !important;
     }
 
+    body.mobile-chat-active .chat-view {
+        display: grid !important;
+        grid-template-rows: auto auto minmax(0, 1fr) !important;
+        min-height: 100% !important;
+    }
+
     body.mobile-chat-active:not(.info-drawer-open) .info-panel {
         display: none !important;
     }
@@ -7219,8 +7225,20 @@ body.keyboard-open .topbar {
     }
 
     body.mobile-chat-active .messages {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        min-height: 0 !important;
+        width: 100% !important;
+        overflow-y: auto !important;
         padding-bottom: calc(122px + env(safe-area-inset-bottom) + var(--keyboard-overlay-offset)) !important;
         scroll-padding-bottom: calc(122px + env(safe-area-inset-bottom) + var(--keyboard-overlay-offset));
+    }
+
+    body.mobile-chat-active .messages .msg,
+    body.mobile-chat-active .messages .hint {
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 
     body.mobile-chat-active.keyboard-open .messages,
@@ -7279,6 +7297,16 @@ body.keyboard-open .topbar {
     body.mobile-chat-list-active .topbar-left {
         position: relative;
         z-index: 5;
+    }
+
+    body.mobile-chat-active .mobile-chat-back,
+    body.mobile-chat-active .chat-header-btn,
+    body.mobile-chat-active #emojiBtn,
+    body.mobile-chat-active #attachMenuBtn,
+    body.mobile-chat-active .composer-primary-btn {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     .user-profile-actions {

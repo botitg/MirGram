@@ -3188,6 +3188,19 @@ async function openChat(chatId) {
     state.memberSearchQuery = "";
     state.memberStatusFilter = "all";
 
+    if (
+        isMobileViewport()
+        && !state.messages.length
+        && state.currentChat?.lastMessage
+    ) {
+        try {
+            const retryMessages = await api(`/api/chats/${state.currentChatId}/messages?limit=200`);
+            state.messages = retryMessages.messages || [];
+        } catch {
+            // keep initial payload
+        }
+    }
+
     renderChats();
     renderCurrentChat();
     markCurrentChatViewed(true).catch(() => {
