@@ -190,6 +190,18 @@ function urlBase64ToUint8Array(base64String) {
 
 function readStoredTokenInfo() {
     try {
+        const localToken = window.localStorage?.getItem(TOKEN_KEY) || "";
+        if (localToken) {
+            return {
+                token: localToken,
+                source: "local",
+            };
+        }
+    } catch {
+        // ignore
+    }
+
+    try {
         const sessionToken = window.sessionStorage?.getItem(TOKEN_KEY) || "";
         if (sessionToken) {
             return {
@@ -202,7 +214,6 @@ function readStoredTokenInfo() {
     }
 
     try {
-        window.localStorage?.removeItem(TOKEN_KEY);
         return {
             token: "",
             source: "",
@@ -1044,6 +1055,40 @@ function escapeHtml(value) {
         .replaceAll("'", "&#39;");
 }
 
+function iconMarkup(name) {
+    const icons = {
+        attach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.4 20.1a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.75 3.75 0 1 1 5.3 5.3l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.4-8.4"/></svg>',
+        back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/><path d="M9 12h10"/></svg>',
+        menu: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="18" cy="12" r="1.8"/></svg>',
+        mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v4"/><path d="M9 21h6"/></svg>',
+        phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3l2 5-2 1.7a15 15 0 0 0 5.3 5.3L15 14l5 2v3a2 2 0 0 1-2.2 2A17.8 17.8 0 0 1 3 6.2 2 2 0 0 1 5 4Z"/></svg>',
+        record: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.75" fill="currentColor"/></svg>',
+        search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>',
+        send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4 18-7Z"/></svg>',
+        smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M8.5 14.5a5 5 0 0 0 7 0"/></svg>',
+        user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0"/></svg>',
+        users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 19a4.5 4.5 0 0 0-9 0"/><circle cx="12" cy="9" r="3"/><path d="M19.5 18a3.75 3.75 0 0 0-3-3.67"/><path d="M7.5 14.33A3.75 3.75 0 0 0 4.5 18"/><path d="M16.5 6.5a2.75 2.75 0 1 1 0 5.5"/><path d="M7.5 6.5a2.75 2.75 0 1 0 0 5.5"/></svg>',
+        video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="12" height="11" rx="2.5"/><path d="m15.5 10 5-3v10l-5-3"/></svg>',
+    };
+
+    return `<span class="ui-icon ui-icon-${escapeHtml(name)}" aria-hidden="true">${icons[name] || icons.menu}</span>`;
+}
+
+function setButtonIcon(button, name, label) {
+    if (!button) return;
+    button.innerHTML = `${iconMarkup(name)}<span class="sr-only">${escapeHtml(label)}</span>`;
+}
+
+function setLabeledIconButton(button, name, label) {
+    if (!button) return;
+    button.innerHTML = `${iconMarkup(name)}<span>${escapeHtml(label)}</span>`;
+}
+
+function hydrateStaticIcons() {
+    setButtonIcon(dom.emojiBtn, "smile", "Открыть эмодзи");
+    setButtonIcon(dom.attachMenuBtn, "attach", "Открыть вложения");
+}
+
 function setInnerHtmlAndRepair(element, markup) {
     if (!element) return;
     element.innerHTML = markup;
@@ -1350,14 +1395,15 @@ function getToken() {
 
 function setToken(token) {
     state.token = token || "";
-    state.tokenSource = state.token ? "session" : "";
+    state.tokenSource = state.token ? "local" : "";
     try {
         if (state.token) {
+            window.localStorage?.setItem(TOKEN_KEY, state.token);
             window.sessionStorage?.setItem(TOKEN_KEY, state.token);
         } else {
+            window.localStorage?.removeItem(TOKEN_KEY);
             window.sessionStorage?.removeItem(TOKEN_KEY);
         }
-        window.localStorage?.removeItem(TOKEN_KEY);
     } catch {
         // ignore
     }
@@ -3180,20 +3226,17 @@ async function loadSession() {
 
     try {
         const data = await api("/api/auth/me");
-        state.resumeSession = {
-            token: getToken(),
-            user: data.user,
-        };
-        state.me = null;
+        state.me = data.user;
+        clearResumeSession();
         clearMobileLockTimer();
         renderProfile();
-        renderResumeSessionCard();
-        setAuthMode(false);
-        return false;
+        setAuthMode(true);
+        return true;
     } catch {
         clearResumeSession();
         setToken("");
         state.me = null;
+        renderProfile();
         setAuthMode(false);
         return false;
     }
@@ -3219,27 +3262,11 @@ function switchStoredMobileSession() {
 }
 
 function persistMobileSessionExit() {
-    if (!isMobileViewport()) return;
-    try {
-        window.sessionStorage?.removeItem(TOKEN_KEY);
-        window.localStorage?.removeItem(TOKEN_KEY);
-    } catch {
-        // ignore
-    }
+    clearMobileLockTimer();
 }
 
 function scheduleMobileSessionLock() {
-    if (!isMobileViewport() || !state.me) return;
     clearMobileLockTimer();
-    state.mobileLockTimerId = window.setTimeout(() => {
-        if (document.visibilityState !== "hidden" || !state.me) {
-            clearMobileLockTimer();
-            return;
-        }
-        logout().catch(() => {
-            // ignore
-        });
-    }, 15000);
 }
 
 async function loadChats({ autoOpenFirst = !isMobileViewport() } = {}) {
@@ -4078,6 +4105,7 @@ function updateRecordingButtons() {
         let buttonMode = actionMode;
         let buttonType = actionMode === "send" ? "submit" : "button";
         let label = "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435";
+        let iconName = "send";
 
         if (isPending || isRecording) {
             buttonMode = isLocked ? "locked" : "recording";
@@ -4085,10 +4113,13 @@ function updateRecordingButtons() {
             label = isLocked
                 ? "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u043f\u0438\u0441\u044c"
                 : "\u0418\u0434\u0435\u0442 \u0437\u0430\u043f\u0438\u0441\u044c";
+            iconName = isLocked ? "send" : "record";
         } else if (actionMode === "audio") {
             label = "\u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0439\u0442\u0435 \u0434\u043b\u044f \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u043e\u0433\u043e";
+            iconName = "mic";
         } else if (actionMode === "video") {
             label = "\u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0439\u0442\u0435 \u0434\u043b\u044f \u043a\u0440\u0443\u0433\u043b\u043e\u0433\u043e \u0432\u0438\u0434\u0435\u043e";
+            iconName = "video";
         }
 
         actionBtn.type = buttonType;
@@ -4096,6 +4127,7 @@ function updateRecordingButtons() {
         actionBtn.dataset.recordKind = currentRecordKind;
         actionBtn.setAttribute("aria-label", label);
         actionBtn.setAttribute("title", label);
+        setButtonIcon(actionBtn, iconName, label);
         actionBtn.classList.toggle("busy", state.recording.isSending);
         actionBtn.classList.toggle("recording", isRecording || isPending);
         actionBtn.classList.toggle("locked", isLocked);
@@ -5359,8 +5391,8 @@ function refreshCallUi() {
     dom.callHintText.textContent = callState.cameraEnabled
         ? "Камера активна. Можно переключаться между аудио и видео прямо во время звонка."
         : "Сейчас идёт аудиозвонок. Камеру можно включить в любой момент.";
-    dom.toggleMicBtn.textContent = callState.micEnabled ? "🎙 Микрофон включён" : "🔇 Микрофон выключен";
-    dom.toggleCameraBtn.textContent = callState.cameraEnabled ? "📷 Выключить камеру" : "📹 Включить камеру";
+    setLabeledIconButton(dom.toggleMicBtn, "mic", callState.micEnabled ? "Микрофон включён" : "Микрофон выключен");
+    setLabeledIconButton(dom.toggleCameraBtn, "video", callState.cameraEnabled ? "Выключить камеру" : "Включить камеру");
     dom.toggleMicBtn.classList.toggle("active", callState.micEnabled);
     dom.toggleCameraBtn.classList.toggle("active", callState.cameraEnabled);
 
@@ -6895,6 +6927,8 @@ async function init() {
     renderEmojiPanel();
     bindUi();
     repairTextTree(document.body);
+    hydrateStaticIcons();
+    updateRecordingButtons();
     setChatsDrawer(false);
     syncFloatingUiState();
     scheduleViewportMetrics();
@@ -7050,17 +7084,19 @@ function renderChatHeader() {
         : callStatus?.active
             ? (isPrivateChat ? "Ответить" : "Войти")
             : (isPrivateChat ? "Позвонить" : "Эфир");
-    const callIcon = inCurrentCall ? "📡" : (callStatus?.mode === "video" ? "📹" : "📞");
+    const callIcon = callStatus?.mode === "video" ? "video" : "phone";
     const avatarUrl = getChatAvatarUrl(chat, privatePeer);
     const mobileBackButton = isMobileViewport()
-        ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">←</button>`
+        ? `<button id="mobileChatBackBtn" class="mobile-chat-back" type="button" aria-label="Назад">${iconMarkup("back")}<span class="sr-only">Назад</span></button>`
         : "";
     const infoLabel = isPrivateChat ? "Профиль" : "Участники";
+    const infoIcon = isPrivateChat ? "user" : "users";
+    const identityLabel = isPrivateChat ? "Открыть профиль" : "Открыть настройки группы";
 
     setInnerHtmlAndRepair(dom.chatHeader, `
         <div class="chat-header-main">
             ${mobileBackButton}
-            <button id="chatIdentityBtn" class="chat-header-identity" type="button" aria-label="Открыть профиль">
+            <button id="chatIdentityBtn" class="chat-header-identity" type="button" aria-label="${escapeHtml(identityLabel)}">
                 <span class="chat-header-avatar">
                     <img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(getChatDisplayName(chat))}" />
                     ${isPrivateChat && privatePeer ? `<span class="chat-avatar-status ${isOnline(privatePeer.id) ? "online" : "offline"}"></span>` : ""}
@@ -7073,7 +7109,7 @@ function renderChatHeader() {
         </div>
         <div class="header-actions">
             <button id="chatSearchBtn" class="btn ghost chat-header-btn" type="button" aria-label="Поиск">
-                <span class="chat-header-btn-icon" aria-hidden="true">🔎</span>
+                <span class="chat-header-btn-icon" aria-hidden="true">${iconMarkup("search")}</span>
                 <span class="chat-header-btn-label">Поиск</span>
             </button>
             <button
@@ -7083,15 +7119,15 @@ function renderChatHeader() {
                 ${!canUseCallAction ? "disabled" : ""}
                 aria-label="${escapeHtml(actionLabel)}"
             >
-                <span class="chat-header-btn-icon" aria-hidden="true">${callIcon}</span>
+                <span class="chat-header-btn-icon" aria-hidden="true">${iconMarkup(callIcon)}</span>
                 <span class="chat-header-btn-label">${escapeHtml(actionLabel)}</span>
             </button>
             <button id="chatInfoBtn" class="btn ghost chat-header-btn" type="button" aria-label="${escapeHtml(infoLabel)}">
-                <span class="chat-header-btn-icon" aria-hidden="true">ⓘ</span>
+                <span class="chat-header-btn-icon" aria-hidden="true">${iconMarkup(infoIcon)}</span>
                 <span class="chat-header-btn-label">${escapeHtml(infoLabel)}</span>
             </button>
             <button id="chatMenuBtn" class="btn ghost chat-header-btn" type="button" aria-label="Управление">
-                <span class="chat-header-btn-icon" aria-hidden="true">⋯</span>
+                <span class="chat-header-btn-icon" aria-hidden="true">${iconMarkup("menu")}</span>
                 <span class="chat-header-btn-label">Управление</span>
             </button>
         </div>
@@ -7126,11 +7162,7 @@ function renderChatHeader() {
             openUserProfileModal(privatePeer, { allowCall: Boolean(state.myPermissions?.canStartCalls) });
             return;
         }
-        if (window.innerWidth < 1280) {
-            setInfoDrawer(true);
-            return;
-        }
-        dom.infoPanel?.scrollTo({ top: 0, behavior: "smooth" });
+        openChatManageMenu();
     });
 
     document.getElementById("chatInfoBtn")?.addEventListener("click", () => {

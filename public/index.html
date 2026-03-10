@@ -3,10 +3,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#07121d" />
+    <meta name="theme-color" content="#f6efe7" />
     <title>MIRX</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/css/app.css?v=20260306h" />
+    <link rel="stylesheet" href="/css/app.css?v=20260310a" />
 </head>
 <body>
     <div id="toasts" class="toasts"></div>
@@ -182,20 +182,52 @@
                     </div>
 
                     <form id="composer" class="composer">
-                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">😊</button>
+                        <button id="emojiBtn" type="button" class="btn ghost icon-btn" aria-label="Открыть эмодзи">
+                            <span class="ui-icon ui-icon-smile" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="8.5"></circle>
+                                    <path d="M9 10h.01"></path>
+                                    <path d="M15 10h.01"></path>
+                                    <path d="M8.5 14.5a5 5 0 0 0 7 0"></path>
+                                </svg>
+                            </span>
+                            <span class="sr-only">Открыть эмодзи</span>
+                        </button>
                         <button id="attachMenuBtn" type="button" class="btn ghost icon-btn attach-btn" aria-label="Открыть вложения" aria-haspopup="menu" aria-expanded="false">
-                            <span class="sr-only">Вложения</span>
+                            <span class="ui-icon ui-icon-attach" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 11.5 12.4 20.1a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.75 3.75 0 1 1 5.3 5.3l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.4-8.4"></path>
+                                </svg>
+                            </span>
+                            <span class="sr-only">Открыть вложения</span>
                         </button>
                         <div id="composerActionPanel" class="composer-action-panel hidden" role="menu" aria-label="Меню вложений">
                             <button type="button" class="composer-action-item" data-attach-action="image" role="menuitem">
-                                <span class="composer-action-item-icon" aria-hidden="true">&#128247;</span>
+                                <span class="composer-action-item-icon" aria-hidden="true">
+                                    <span class="ui-icon ui-icon-camera">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h2.1l1.3-1.8h4.2L15.4 6h2.1A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"></path>
+                                            <circle cx="12" cy="12.5" r="3.5"></circle>
+                                        </svg>
+                                    </span>
+                                </span>
                                 <span class="composer-action-item-copy">
                                     <strong>Фото</strong>
                                     <small>Картинка или снимок</small>
                                 </span>
                             </button>
                             <button type="button" class="composer-action-item" data-attach-action="sticker" role="menuitem">
-                                <span class="composer-action-item-icon" aria-hidden="true">&#129513;</span>
+                                <span class="composer-action-item-icon" aria-hidden="true">
+                                    <span class="ui-icon ui-icon-sticker">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v7.6a2.5 2.5 0 0 1-.73 1.77l-3.4 3.4a2.5 2.5 0 0 1-1.77.73H7A2.5 2.5 0 0 1 4.5 18V7A2.5 2.5 0 0 1 7 4.5Z"></path>
+                                            <path d="M14 20v-3.5A2.5 2.5 0 0 1 16.5 14H20"></path>
+                                            <path d="M8.5 10.5h.01"></path>
+                                            <path d="M13.5 10.5h.01"></path>
+                                            <path d="M8.5 14a5.1 5.1 0 0 0 5 0"></path>
+                                        </svg>
+                                    </span>
+                                </span>
                                 <span class="composer-action-item-copy">
                                     <strong>Стикер</strong>
                                     <small>Новый файл или пак</small>
@@ -207,6 +239,12 @@
                         <input id="imageInput" type="file" accept="image/*" hidden />
                         <input id="stickerInput" type="file" accept="image/*" hidden />
                         <button id="composerActionBtn" class="btn primary composer-primary-btn" type="submit" aria-label="Отправить сообщение">
+                            <span class="ui-icon ui-icon-send" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 3 10 14"></path>
+                                    <path d="m21 3-7 18-4-7-7-4 18-7Z"></path>
+                                </svg>
+                            </span>
                             <span class="sr-only">Отправить сообщение</span>
                         </button>
                     </form>
@@ -341,18 +379,36 @@
                     </aside>
                 </div>
                 <div class="call-controls">
-                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">🎙 Микрофон</button>
-                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">📹 Камера</button>
+                    <button id="toggleMicBtn" class="btn ghost call-control-btn" type="button">
+                        <span class="ui-icon ui-icon-mic" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                                <path d="M6 11a6 6 0 0 0 12 0"></path>
+                                <path d="M12 17v4"></path>
+                                <path d="M9 21h6"></path>
+                            </svg>
+                        </span>
+                        <span>Микрофон</span>
+                    </button>
+                    <button id="toggleCameraBtn" class="btn ghost call-control-btn" type="button">
+                        <span class="ui-icon ui-icon-video" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3.5" y="6.5" width="12" height="11" rx="2.5"></rect>
+                                <path d="m15.5 10 5-3v10l-5-3"></path>
+                            </svg>
+                        </span>
+                        <span>Камера</span>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="/config.js?v=20260304e"></script>
+    <script src="/config.js?v=20260310a"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js" crossorigin="anonymous"></script>
     <script src="/js/auth-scene.js?v=20260305b"></script>
     <script src="/js/app-scene.js?v=20260305b"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/app.js?v=20260306h"></script>
+    <script src="/js/app.js?v=20260310a"></script>
 </body>
 </html>

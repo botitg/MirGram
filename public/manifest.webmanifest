@@ -4,8 +4,8 @@
     "description": "Realtime messenger with private chats, media, calls and notifications.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#07121d",
-    "theme_color": "#07121d",
+    "background_color": "#f6efe7",
+    "theme_color": "#f6efe7",
     "lang": "ru",
     "icons": [
         {
