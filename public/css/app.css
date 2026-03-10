@@ -7434,6 +7434,7 @@ body.keyboard-open .topbar {
     body.mobile-chat-active #messages.messages {
         display: flex !important;
         flex-direction: column !important;
+        align-items: flex-start !important;
         flex: 1 1 auto !important;
         height: auto !important;
         min-height: 0 !important;
@@ -7449,8 +7450,8 @@ body.keyboard-open .topbar {
     body.mobile-chat-active #messages.messages .mobile-msg-fallback {
         display: block !important;
         flex: 0 0 auto !important;
-        width: fit-content !important;
-        max-width: min(88%, 34rem) !important;
+        width: auto !important;
+        max-width: 88% !important;
         visibility: visible !important;
         opacity: 1 !important;
     }

@@ -760,8 +760,8 @@ function enforceMobileMessageVisibility() {
         child.style.setProperty("visibility", "visible", "important");
         child.style.setProperty("opacity", "1", "important");
         if (child.classList.contains("msg") || child.classList.contains("mobile-msg-fallback")) {
-            child.style.setProperty("width", "fit-content", "important");
-            child.style.setProperty("max-width", "min(88%, 34rem)", "important");
+            child.style.setProperty("width", "auto", "important");
+            child.style.setProperty("max-width", "88%", "important");
             if (child.classList.contains("self")) {
                 child.style.setProperty("margin-left", "auto", "important");
             } else {
