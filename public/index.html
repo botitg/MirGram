@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0b1424" />
     <title>MIRX</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/css/app.css?v=20260310b" />
+    <link rel="stylesheet" href="/css/app.css?v=20260310c" />
 </head>
 <body>
     <div id="toasts" class="toasts"></div>
@@ -74,6 +74,10 @@
                 </div>
 
                 <form id="loginForm" class="auth-form active">
+                    <div class="auth-form-head">
+                        <strong>Войти в аккаунт</strong>
+                        <span>Откройте свои чаты, группы и звонки по нику и паролю без лишних шагов.</span>
+                    </div>
                     <label>
                         Ник
                         <input name="username" type="text" required minlength="3" maxlength="24" placeholder="Например: Mirx_User" />
@@ -86,6 +90,24 @@
                 </form>
 
                 <form id="registerForm" class="auth-form">
+                    <div class="auth-form-head auth-form-head-register">
+                        <strong>Создать аккаунт MIRX</strong>
+                        <span>Ник вместо номера телефона, приватный профиль и быстрый старт на любом устройстве.</span>
+                    </div>
+                    <div class="auth-register-perks">
+                        <article>
+                            <strong>Ник вместо номера</strong>
+                            <span>Регистрация только по имени пользователя и паролю.</span>
+                        </article>
+                        <article>
+                            <strong>Сессия на устройстве</strong>
+                            <span>Без повторного входа после обновления страницы.</span>
+                        </article>
+                        <article>
+                            <strong>Чаты и звонки сразу</strong>
+                            <span>Личные диалоги, группы и звонки доступны сразу после создания аккаунта.</span>
+                        </article>
+                    </div>
                     <label>
                         Ник
                         <input name="username" type="text" required minlength="3" maxlength="24" placeholder="Можно на русском или латиницей" />
