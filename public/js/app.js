@@ -226,6 +226,7 @@ const state = {
     filteredChats: [],
     currentChatId: null,
     currentChat: null,
+    chatLoading: false,
     messages: [],
     members: [],
     chatStickers: [],
@@ -324,7 +325,7 @@ const rtcConfig = {
         }],
 };
 
-const MOBILE_BREAKPOINT = 1023;
+const MOBILE_BREAKPOINT = 1022;
 
 const EMOJI_GROUPS = [
     {
@@ -680,40 +681,93 @@ function hasCurrentChatSelection() {
 
 function enforceMobileMessageVisibility() {
     if (!dom.chatView || !dom.messages || !dom.composer) return;
+    const chatPanel = dom.chatView.closest(".chat-panel");
 
     if (!isMobileViewport() || !hasCurrentChatSelection()) {
+        if (chatPanel) {
+            chatPanel.style.removeProperty("display");
+            chatPanel.style.removeProperty("flex-direction");
+            chatPanel.style.removeProperty("height");
+            chatPanel.style.removeProperty("min-height");
+            chatPanel.style.removeProperty("overflow");
+        }
+
         dom.chatView.style.removeProperty("display");
         dom.chatView.style.removeProperty("flex-direction");
         dom.chatView.style.removeProperty("flex");
+        dom.chatView.style.removeProperty("height");
         dom.chatView.style.removeProperty("min-height");
+        dom.chatView.style.removeProperty("overflow");
 
         dom.messages.style.removeProperty("display");
         dom.messages.style.removeProperty("flex-direction");
         dom.messages.style.removeProperty("flex");
+        dom.messages.style.removeProperty("height");
         dom.messages.style.removeProperty("min-height");
+        dom.messages.style.removeProperty("overflow-x");
         dom.messages.style.removeProperty("overflow-y");
         dom.messages.style.removeProperty("visibility");
         dom.messages.style.removeProperty("opacity");
+        dom.composer.style.removeProperty("position");
+        dom.composer.style.removeProperty("left");
+        dom.composer.style.removeProperty("right");
+        dom.composer.style.removeProperty("bottom");
+        dom.composer.style.removeProperty("z-index");
+
+        for (const child of dom.messages.children) {
+            child.style.removeProperty("display");
+            child.style.removeProperty("width");
+            child.style.removeProperty("max-width");
+            child.style.removeProperty("visibility");
+            child.style.removeProperty("opacity");
+            child.style.removeProperty("margin-left");
+        }
         return;
+    }
+
+    if (chatPanel) {
+        chatPanel.style.setProperty("display", "flex", "important");
+        chatPanel.style.setProperty("flex-direction", "column", "important");
+        chatPanel.style.setProperty("height", "var(--app-height, 100dvh)", "important");
+        chatPanel.style.setProperty("min-height", "0", "important");
+        chatPanel.style.setProperty("overflow", "hidden", "important");
     }
 
     dom.chatView.style.setProperty("display", "flex", "important");
     dom.chatView.style.setProperty("flex-direction", "column", "important");
     dom.chatView.style.setProperty("flex", "1 1 auto", "important");
+    dom.chatView.style.setProperty("height", "100%", "important");
     dom.chatView.style.setProperty("min-height", "0", "important");
+    dom.chatView.style.setProperty("overflow", "hidden", "important");
 
     dom.messages.style.setProperty("display", "flex", "important");
     dom.messages.style.setProperty("flex-direction", "column", "important");
     dom.messages.style.setProperty("flex", "1 1 auto", "important");
-    dom.messages.style.setProperty("min-height", "140px", "important");
+    dom.messages.style.setProperty("height", "auto", "important");
+    dom.messages.style.setProperty("min-height", "0", "important");
+    dom.messages.style.setProperty("overflow-x", "hidden", "important");
     dom.messages.style.setProperty("overflow-y", "auto", "important");
     dom.messages.style.setProperty("visibility", "visible", "important");
     dom.messages.style.setProperty("opacity", "1", "important");
+    dom.composer.style.setProperty("position", "fixed", "important");
+    dom.composer.style.setProperty("left", "0", "important");
+    dom.composer.style.setProperty("right", "0", "important");
+    dom.composer.style.setProperty("bottom", "calc(env(safe-area-inset-bottom) + var(--keyboard-overlay-offset))", "important");
+    dom.composer.style.setProperty("z-index", "30", "important");
 
     for (const child of dom.messages.children) {
         child.style.setProperty("display", "block", "important");
         child.style.setProperty("visibility", "visible", "important");
         child.style.setProperty("opacity", "1", "important");
+        if (child.classList.contains("msg") || child.classList.contains("mobile-msg-fallback")) {
+            child.style.setProperty("width", "fit-content", "important");
+            child.style.setProperty("max-width", "min(88%, 34rem)", "important");
+            if (child.classList.contains("self")) {
+                child.style.setProperty("margin-left", "auto", "important");
+            } else {
+                child.style.removeProperty("margin-left");
+            }
+        }
     }
 
     const hasStateMessages = Array.isArray(state.messages) && state.messages.length > 0;
@@ -734,7 +788,7 @@ function enforceMobileMessageVisibility() {
             return `
                 <article class="msg ${isSelf ? "self" : ""}" style="display:block;visibility:visible;opacity:1;">
                     <div class="msg-head"><span>${senderName}</span><span>${time}</span></div>
-                    <div>${body}</div>
+                    <div class="msg-text">${body}</div>
                 </article>
             `;
         })
@@ -2008,7 +2062,7 @@ async function openDirectChatFromSearch(userId) {
         method: "POST",
         body: { userId: Number(userId) },
     });
-    await loadChats();
+    await loadChats({ autoOpenFirst: false });
     await openChat(result.chatId);
 }
 
@@ -2648,7 +2702,7 @@ function renderMessages() {
         const text = isDeleted
             ? `<div class="msg-deleted-copy">Сообщение удалено</div>`
             : message.text
-                ? `<div>${escapeHtml(message.text)}</div>`
+                ? `<div class="msg-text">${escapeHtml(message.text)}</div>`
                 : "";
         const actions = message.type !== "system"
             ? `
@@ -3188,7 +3242,7 @@ function scheduleMobileSessionLock() {
     }, 15000);
 }
 
-async function loadChats() {
+async function loadChats({ autoOpenFirst = !isMobileViewport() } = {}) {
     if (!state.me) return;
     const data = await api("/api/chats");
     state.chats = data.chats || [];
@@ -3197,6 +3251,7 @@ async function loadChats() {
         state.openChatRequestSeq = Number(state.openChatRequestSeq || 0) + 1;
         state.currentChatId = null;
         state.currentChat = null;
+        state.chatLoading = false;
         state.messages = [];
         state.members = [];
         state.chatStickers = [];
@@ -3204,7 +3259,7 @@ async function loadChats() {
 
     renderChats();
 
-    if (!state.currentChatId && state.chats.length && !isMobileViewport()) {
+    if (!state.currentChatId && state.chats.length && autoOpenFirst && !isMobileViewport()) {
         await openChat(state.chats[0].id);
     } else {
         renderCurrentChat();
@@ -3222,6 +3277,7 @@ function closeMobileChatView() {
     state.openChatRequestSeq = Number(state.openChatRequestSeq || 0) + 1;
     state.currentChatId = null;
     state.currentChat = null;
+    state.chatLoading = false;
     state.messages = [];
     state.members = [];
     state.chatStickers = [];
@@ -3599,7 +3655,7 @@ async function openNewPrivateChat() {
             body: { userId: Number(payload.userId) },
         });
 
-        await loadChats();
+        await loadChats({ autoOpenFirst: false });
         await openChat(result.chatId);
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
@@ -3642,7 +3698,7 @@ async function openNewGroupChat() {
             },
         });
 
-        await loadChats();
+        await loadChats({ autoOpenFirst: false });
         await openChat(result.chatId);
     } catch (error) {
         if (error.message !== "cancelled") toast(error.message);
@@ -6203,7 +6259,7 @@ function connectSocket() {
         if (!id) return;
 
         try {
-            await loadChats();
+            await loadChats({ autoOpenFirst: false });
             if (state.currentChatId === id) {
                 await openChat(id);
             }
@@ -7592,6 +7648,11 @@ function handleMessageActionClick(event) {
 openChat = async function openChatStable(chatId) {
     const requestedChatId = Number(chatId || 0);
     if (!requestedChatId) return;
+    const defaultPermissions = {
+        canSend: false,
+        canSendMedia: false,
+        canStartCalls: false,
+    };
 
     const requestSeq = Number(state.openChatRequestSeq || 0) + 1;
     state.openChatRequestSeq = requestSeq;
@@ -7612,12 +7673,25 @@ openChat = async function openChatStable(chatId) {
 
     state.currentChatId = requestedChatId;
     state.currentChat = state.chats.find((chat) => Number(chat.id) === requestedChatId) || null;
+    state.chatLoading = true;
     clearSearchResults();
 
     if (!state.currentChat) {
+        state.chatLoading = false;
         renderCurrentChat();
         return;
     }
+
+    state.myRole = state.currentChat.myRole ?? state.myRole ?? null;
+    state.myPermissions = state.currentChat.permissions || state.myPermissions || defaultPermissions;
+    state.members = [];
+    state.chatStickers = [];
+    state.messages = state.currentChat.lastMessage ? [state.currentChat.lastMessage] : [];
+    state.memberSearchQuery = "";
+    state.memberStatusFilter = "all";
+    renderChats();
+    renderCurrentChat();
+    setChatsDrawer(false);
 
     if (state.socket) {
         state.socket.emit("chat:join", { chatId: requestedChatId });
@@ -7662,11 +7736,7 @@ openChat = async function openChatStable(chatId) {
     }
 
     state.myRole = chatData?.myRole ?? state.myRole ?? null;
-    state.myPermissions = chatData?.myPermissions || state.myPermissions || {
-        canSend: false,
-        canSendMedia: false,
-        canStartCalls: false,
-    };
+    state.myPermissions = chatData?.myPermissions || state.myPermissions || defaultPermissions;
     state.members = Array.isArray(chatData?.members) ? chatData.members : [];
     state.chatStickers = Array.isArray(chatData?.stickers) ? chatData.stickers : [];
     state.messages = extractMessagesFromPayload(messagesData);
@@ -7691,6 +7761,7 @@ openChat = async function openChatStable(chatId) {
         }
     }
     if (isStaleRequest()) return;
+    state.chatLoading = false;
 
     renderChats();
     renderCurrentChat();
@@ -7713,7 +7784,11 @@ renderMessages = function renderMessagesSafe() {
         : [];
 
     if (!sourceMessages.length) {
-        setInnerHtmlAndRepair(dom.messages, "<p class='hint'>No messages yet</p>");
+        setInnerHtmlAndRepair(
+            dom.messages,
+            `<p class='hint'>${state.chatLoading ? "Загрузка сообщений..." : "Пока нет сообщений"}</p>`
+        );
+        enforceMobileMessageVisibility();
         return;
     }
 
@@ -7766,7 +7841,7 @@ renderMessages = function renderMessagesSafe() {
             const text = isDeleted
                 ? "<div class='msg-deleted-copy'>Message removed</div>"
                 : message.text
-                    ? `<div>${escapeHtml(String(message.text))}</div>`
+                    ? `<div class="msg-text">${escapeHtml(String(message.text))}</div>`
                     : "";
 
             const messageId = message.id == null ? "" : String(message.id);

@@ -802,6 +802,46 @@ async function readMessageViews(chatId, messageId) {
     }));
 }
 
+async function readMessageViewsMap(messageIds) {
+    const uniqueIds = [...new Set((Array.isArray(messageIds) ? messageIds : []).map(Number).filter(Boolean))];
+    if (!uniqueIds.length) {
+        return new Map();
+    }
+
+    const rows = await db.all(
+        `SELECT mv.message_id AS messageId,
+                mv.user_id AS userId,
+                mv.viewed_at AS viewedAt,
+                u.username,
+                u.avatar_url AS avatarUrl,
+                cm.group_nick AS groupNick,
+                cm.group_avatar_url AS groupAvatarUrl
+         FROM message_views mv
+         JOIN messages m ON m.id = mv.message_id
+         JOIN users u ON u.id = mv.user_id
+         LEFT JOIN chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = mv.user_id
+         WHERE mv.message_id IN (${uniqueIds.map(() => '?').join(',')})
+         ORDER BY mv.message_id ASC, mv.viewed_at ASC`,
+        uniqueIds
+    );
+
+    const viewsByMessageId = new Map();
+    for (const row of rows) {
+        const messageId = Number(row.messageId);
+        const existing = viewsByMessageId.get(messageId) || [];
+        existing.push({
+            userId: row.userId,
+            username: row.username,
+            displayName: row.groupNick || row.username,
+            avatarUrl: row.groupAvatarUrl || row.avatarUrl,
+            viewedAt: row.viewedAt,
+        });
+        viewsByMessageId.set(messageId, existing);
+    }
+
+    return viewsByMessageId;
+}
+
 const MESSAGE_SELECT_SQL = `
     SELECT m.id,
             m.chat_id AS chatId,
@@ -831,11 +871,10 @@ const MESSAGE_SELECT_SQL = `
      LEFT JOIN users ru ON ru.id = rm.user_id
 `;
 
-async function serializeMessage(row) {
+function serializeMessageRow(row, views = []) {
     const isDeleted = Boolean(row.deletedAt);
     const mediaUrl = !isDeleted ? toPublicUrl(row.imageUrl) : null;
     const replyMediaUrl = row.replyDeletedAt ? null : toPublicUrl(row.replyImageUrl);
-    const views = row.id ? await readMessageViews(row.chatId, row.id) : [];
     return {
         id: row.id,
         chatId: row.chatId,
@@ -881,11 +920,43 @@ async function serializeMessage(row) {
     };
 }
 
+async function serializeMessageRows(rows) {
+    const normalizedRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!normalizedRows.length) {
+        return [];
+    }
+
+    const viewsByMessageId = await readMessageViewsMap(normalizedRows.map((row) => row.id));
+    return normalizedRows.map((row) => serializeMessageRow(row, viewsByMessageId.get(Number(row.id)) || []));
+}
+
+async function serializeMessage(row) {
+    if (!row) {
+        return null;
+    }
+
+    const [message] = await serializeMessageRows([row]);
+    return message || null;
+}
+
 async function readMessageById(messageId) {
     return db.get(
         `${MESSAGE_SELECT_SQL}
          WHERE m.id = ?`,
         [messageId]
+    );
+}
+
+async function readMessageRowsByIds(messageIds) {
+    const uniqueIds = [...new Set((Array.isArray(messageIds) ? messageIds : []).map(Number).filter(Boolean))];
+    if (!uniqueIds.length) {
+        return [];
+    }
+
+    return db.all(
+        `${MESSAGE_SELECT_SQL}
+         WHERE m.id IN (${uniqueIds.map(() => '?').join(',')})`,
+        uniqueIds
     );
 }
 
@@ -1877,6 +1948,44 @@ app.get(
             [req.user.id]
         );
 
+        const lastMessageIds = [...new Set(rows.map((row) => Number(row.lastMessageId)).filter(Boolean))];
+        const privateChatIds = rows
+            .filter((row) => row.type === 'private')
+            .map((row) => Number(row.id))
+            .filter(Boolean);
+
+        const peersByChatId = new Map();
+        if (privateChatIds.length) {
+            const peerRows = await db.all(
+                `SELECT cm.chat_id AS chatId,
+                        u.id,
+                        u.username,
+                        u.avatar_url AS avatarUrl,
+                        cm.group_nick AS groupNick,
+                        cm.group_avatar_url AS groupAvatarUrl
+                 FROM chat_members cm
+                 JOIN users u ON u.id = cm.user_id
+                 WHERE cm.chat_id IN (${privateChatIds.map(() => '?').join(',')})
+                   AND cm.user_id <> ?`,
+                [...privateChatIds, req.user.id]
+            );
+
+            for (const peer of peerRows) {
+                if (!peersByChatId.has(Number(peer.chatId))) {
+                    peersByChatId.set(Number(peer.chatId), peer);
+                }
+            }
+        }
+
+        const lastMessagesById = new Map();
+        if (lastMessageIds.length) {
+            const messageRows = await readMessageRowsByIds(lastMessageIds);
+            const serializedMessages = await serializeMessageRows(messageRows);
+            for (const message of serializedMessages) {
+                lastMessagesById.set(Number(message.id), message);
+            }
+        }
+
         const chats = [];
         for (const row of rows) {
             let title = row.name || '';
@@ -1884,18 +1993,7 @@ app.get(
             let peerId = null;
 
             if (row.type === 'private') {
-                const peer = await db.get(
-                    `SELECT u.id,
-                        u.username,
-                        u.avatar_url AS avatarUrl,
-                        cm.group_nick AS groupNick,
-                        cm.group_avatar_url AS groupAvatarUrl
-                 FROM chat_members cm
-                 JOIN users u ON u.id = cm.user_id
-                 WHERE cm.chat_id = ? AND cm.user_id <> ?
-                 LIMIT 1`,
-                    [row.id, req.user.id]
-                );
+                const peer = peersByChatId.get(Number(row.id));
                 if (peer) {
                     peerId = peer.id;
                     title = peer.groupNick || peer.username;
@@ -1903,13 +2001,9 @@ app.get(
                 }
             }
 
-            let lastMessage = null;
-            if (row.lastMessageId) {
-                const m = await readMessageById(row.lastMessageId);
-                if (m) {
-                    lastMessage = await serializeMessage(m);
-                }
-            }
+            const lastMessage = row.lastMessageId
+                ? lastMessagesById.get(Number(row.lastMessageId)) || null
+                : null;
 
             chats.push({
                 id: row.id,
@@ -1943,34 +2037,34 @@ app.get(
         const membership = await readMembership(chatId, req.user.id);
         assert(membership, 'Чат не найден или доступ запрещён.', 404);
 
-        const chat = await db.get(
-            `SELECT id, name, type, owner_id AS ownerId, created_at AS createdAt
-         FROM chats
-         WHERE id = ?`,
-            [chatId]
-        );
-
-        const members = await db.all(
-            `SELECT u.id,
-                u.username,
-                u.avatar_url AS avatarUrl,
-                cm.role,
-                cm.group_nick AS groupNick,
-                cm.group_avatar_url AS groupAvatarUrl,
-                cm.can_send AS canSend,
-                cm.can_send_media AS canSendMedia,
-                cm.can_start_calls AS canStartCalls,
-                cm.joined_at AS joinedAt
-         FROM chat_members cm
-         JOIN users u ON u.id = cm.user_id
-         WHERE cm.chat_id = ?
-         ORDER BY CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.username ASC`,
-            [chatId]
-        );
-
-        const stickers = chat.type === 'group'
-            ? await listChatStickers(chatId)
-            : [];
+        const [chat, members, stickers] = await Promise.all([
+            db.get(
+                `SELECT id, name, type, owner_id AS ownerId, created_at AS createdAt
+                 FROM chats
+                 WHERE id = ?`,
+                [chatId]
+            ),
+            db.all(
+                `SELECT u.id,
+                        u.username,
+                        u.avatar_url AS avatarUrl,
+                        cm.role,
+                        cm.group_nick AS groupNick,
+                        cm.group_avatar_url AS groupAvatarUrl,
+                        cm.can_send AS canSend,
+                        cm.can_send_media AS canSendMedia,
+                        cm.can_start_calls AS canStartCalls,
+                        cm.joined_at AS joinedAt
+                 FROM chat_members cm
+                 JOIN users u ON u.id = cm.user_id
+                 WHERE cm.chat_id = ?
+                 ORDER BY CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.username ASC`,
+                [chatId]
+            ),
+            membership.chatType === 'group'
+                ? listChatStickers(chatId)
+                : Promise.resolve([]),
+        ]);
 
         res.json({
             chat,
@@ -2381,10 +2475,7 @@ app.get(
         }
 
         rows.reverse();
-        const messages = [];
-        for (const row of rows) {
-            messages.push(await serializeMessage(row));
-        }
+        const messages = await serializeMessageRows(rows);
 
         res.json({ messages });
     })
